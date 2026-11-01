@@ -1,0 +1,6 @@
+# I censimenti e i report contengono dati dei clienti: non vanno mai pubblicati
+Report/
+Censimento/
+# L'exe si crea con Crea-Exe.cmd o su GitHub (Actions): non va nel repository
+ToolkitHelpDesk.exe
+dist/

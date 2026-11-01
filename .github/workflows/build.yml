@@ -1,0 +1,106 @@
+# Test, creazione dell'exe e (quando SignPath e' configurato) firma.
+# Gira su Windows con Windows PowerShell 5.1, come sui PC dei clienti.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # serve solo per pubblicare la release sui tag v*
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Strumenti di test (Pester 5 e PSScriptAnalyzer)
+        shell: powershell
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Test con Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          Import-Module Pester -MinimumVersion 5.5.0
+          $configurazione = New-PesterConfiguration
+          $configurazione.Run.Path = './tests'
+          $configurazione.Run.Exit = $true
+          $configurazione.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $configurazione
+
+      - name: Crea ToolkitHelpDesk.exe (compilatore C# di Windows)
+        shell: powershell
+        run: .\exe\Crea-Exe.ps1
+
+      - name: Prova l'exe (si avvia e si chiude senza mostrare la finestra)
+        shell: powershell
+        run: |
+          $processo = Start-Process -FilePath .\ToolkitHelpDesk.exe -ArgumentList '/verifica' -Wait -PassThru
+          if ($processo.ExitCode -ne 0) {
+            Get-Content -LiteralPath (Join-Path $env:TEMP 'HelpDeskToolkit-errori.txt') -ErrorAction SilentlyContinue
+            throw "ToolkitHelpDesk.exe /verifica: codice di uscita $($processo.ExitCode)"
+          }
+          (Get-Item .\ToolkitHelpDesk.exe).VersionInfo | Format-List FileVersion, ProductName
+
+      - name: Carica l'exe da firmare
+        id: da-firmare
+        uses: actions/upload-artifact@v4
+        with:
+          name: ToolkitHelpDesk-non-firmato
+          path: ToolkitHelpDesk.exe
+          if-no-files-found: error
+
+      # Attivo solo dopo l'approvazione di SignPath Foundation: in Settings > Secrets and variables > Actions
+      # servono il secret SIGNPATH_API_TOKEN e le variabili SIGNPATH_ORGANIZATION_ID,
+      # SIGNPATH_PROJECT_SLUG e SIGNPATH_SIGNING_POLICY_SLUG.
+      - name: Firma con SignPath
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' && github.event_name != 'pull_request' }}
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.da-firmare.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: firmato
+
+      - name: Prepara i pacchetti
+        shell: powershell
+        run: |
+          if (Test-Path -LiteralPath .\firmato\ToolkitHelpDesk.exe) {
+            Copy-Item -LiteralPath .\firmato\ToolkitHelpDesk.exe -Destination .\ToolkitHelpDesk.exe -Force
+            $firma = Get-AuthenticodeSignature -FilePath .\ToolkitHelpDesk.exe
+            if ($firma.Status -ne 'Valid') { throw "Firma non valida: $($firma.Status)" }
+            'Firmato da: ' + $firma.SignerCertificate.Subject
+          }
+          else { 'Exe NON firmato (SignPath non ancora configurato)' }
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Compress-Archive -Path .\ToolkitHelpDesk.exe -DestinationPath .\dist\ToolkitHelpDesk.zip
+          $completo = Join-Path $env:RUNNER_TEMP 'helpdesk-toolkit'
+          git archive --format=zip --prefix=helpdesk-toolkit/ -o (Join-Path $env:RUNNER_TEMP 'sorgente.zip') HEAD
+          Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP 'sorgente.zip') -DestinationPath $env:RUNNER_TEMP
+          Copy-Item -LiteralPath .\ToolkitHelpDesk.exe -Destination $completo
+          Compress-Archive -Path $completo -DestinationPath .\dist\helpdesk-toolkit.zip
+
+      - name: Carica i pacchetti
+        uses: actions/upload-artifact@v4
+        with:
+          name: pacchetti
+          path: dist/*.zip
+          if-no-files-found: error
+
+      - name: Pubblica la release (solo per i tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME dist\ToolkitHelpDesk.zip dist\helpdesk-toolkit.zip --title "Toolkit Help Desk $env:GITHUB_REF_NAME" --notes "ToolkitHelpDesk.zip: il programma (un solo file). helpdesk-toolkit.zip: pacchetto completo con prova e sorgente."

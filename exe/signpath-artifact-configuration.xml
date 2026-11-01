@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Configurazione dell'artefatto da incollare nel progetto SignPath:
+     GitHub consegna l'exe dentro uno zip, SignPath firma l'exe (Authenticode). -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="ToolkitHelpDesk.exe">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
