@@ -52,7 +52,7 @@ function Get-HDNumeroSerie {
     $s
 }
 
-function ConvertFrom-HDStatoAntivirus {
+function ConvertFrom-HDStatoProtezione {
     # productState di SecurityCenter2: 2° byte = motore attivo, 3° byte = firme aggiornate
     param([int64]$ProductState)
     $hex = '{0:X6}' -f $ProductState

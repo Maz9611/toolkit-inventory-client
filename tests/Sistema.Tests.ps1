@@ -40,11 +40,11 @@ Describe 'Numero di serie e antivirus' {
 
     It 'decodifica lo stato dell''antivirus (SecurityCenter2)' {
         InModuleScope HelpDeskToolkit {
-            $a = ConvertFrom-HDStatoAntivirus 397568     # 0x061100
+            $a = ConvertFrom-HDStatoProtezione 397568     # 0x061100
             $a.Attivo | Should -BeTrue
             $a.Aggiornato | Should -BeTrue
-            (ConvertFrom-HDStatoAntivirus 393472).Attivo | Should -BeFalse          # 0x060100
-            (ConvertFrom-HDStatoAntivirus 397584).Aggiornato | Should -BeFalse      # 0x061110
+            (ConvertFrom-HDStatoProtezione 393472).Attivo | Should -BeFalse          # 0x060100
+            (ConvertFrom-HDStatoProtezione 397584).Aggiornato | Should -BeFalse      # 0x061110
         }
     }
 }

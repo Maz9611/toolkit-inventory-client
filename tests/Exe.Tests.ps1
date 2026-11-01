@@ -3,10 +3,12 @@
     $script:CreaExe = Join-Path (Join-Path $script:RadiceToolkit 'exe') 'Crea-Exe.ps1'
     $script:Pacchetto = & $script:CreaExe -SoloPacchetto
     if (-not ('ToolkitHelpDesk.Esecutore' -as [type])) {
-        # Lo stesso codice C# dell'exe, senza la parte Windows Forms: compila anche come C# 5
+        # Lo stesso codice C# dell'exe, senza la parte Windows Forms: con Windows PowerShell compila
+        # con lo stesso compilatore C# 5 di Crea-Exe. (#define in testa: Add-Type di Windows PowerShell
+        # non ha -CompilerOptions)
         $codice = [System.IO.File]::ReadAllText((Join-Path (Join-Path $script:RadiceToolkit 'exe') 'Avvio.cs'))
-        $codice = $codice.Replace('@@VERSIONE@@', '0.0.0.1').Replace('@@AUTORE@@', 'test')
-        Add-Type -TypeDefinition $codice -CompilerOptions '-define:SENZA_FINESTRA' -IgnoreWarnings
+        $codice = "#define SENZA_FINESTRA`r`n" + $codice.Replace('@@VERSIONE@@', '0.0.0.1').Replace('@@AUTORE@@', 'test')
+        Add-Type -TypeDefinition $codice -IgnoreWarnings
     }
 }
 AfterAll { . (Join-Path $PSScriptRoot 'Termina.ps1') }

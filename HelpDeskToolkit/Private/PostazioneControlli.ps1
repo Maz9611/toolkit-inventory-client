@@ -10,7 +10,7 @@ $script:HDControlli = [ordered]@{
     Disco            = 'Test-HDCtrlDisco'
     Memoria          = 'Test-HDCtrlMemoria'
     Aggiornamenti    = 'Test-HDCtrlAggiornamenti'
-    Antivirus        = 'Test-HDCtrlAntivirus'
+    Antivirus        = 'Test-HDCtrlProtezione'
     Firewall         = 'Test-HDCtrlFirewall'
     BitLocker        = 'Test-HDCtrlBitLocker'
     Rete             = 'Test-HDCtrlRete'
@@ -166,7 +166,7 @@ function Test-HDCtrlAggiornamenti {
     New-HDEsito -Area 'Sicurezza' -Controllo $c -Stato 'OK' -Dettaglio $det
 }
 
-function Test-HDCtrlAntivirus {
+function Test-HDCtrlProtezione {
     param($Dati, $Soglie, [datetime]$Adesso)
     $c = 'Antivirus'
     $prodotti = $Dati.Antivirus
@@ -175,7 +175,7 @@ function Test-HDCtrlAntivirus {
     $attivi = @()
     $descr = @()
     foreach ($p in @($prodotti | Where-Object { $_ })) {
-        $st = ConvertFrom-HDStatoAntivirus -ProductState $p.productState
+        $st = ConvertFrom-HDStatoProtezione -ProductState $p.productState
         $testo = 'non attivo'
         if ($st.Attivo) {
             $testo = 'attivo'

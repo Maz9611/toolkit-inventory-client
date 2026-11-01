@@ -19,6 +19,9 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
 - I nomi delle variabili non distinguono maiuscole: una variabile locale con lo stesso nome di un
   parametro tipizzato (`$rete` e `[string]$Rete`) ne eredita il tipo. Usa nomi diversi.
 - Le funzioni che restituiscono elenchi non usano `, @(...)` se il chiamante fa `@(...)` (array annidati).
+- La regola PSUseSingularNouns di PSScriptAnalyzer funziona solo su Windows (su Linux non segnala):
+  niente nomi di funzione che finiscono in "s" (es. `...Antivirus`). In Windows PowerShell 5.1
+  `Add-Type` non ha `-CompilerOptions`. La verifica vera è la build su GitHub Actions (Windows).
 
 ## Excel (Private/Xlsx.ps1)
 
