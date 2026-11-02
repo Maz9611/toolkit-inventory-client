@@ -1,15 +1,17 @@
 ﻿# Censimento: dati in più nei fogli "Dettagli" (una riga per PC) e "Software" (una riga per
-# programma installato). Le 20 colonne del foglio principale non cambiano.
+# programma, con quanti e quali PC lo hanno). L'elenco dei programmi di ogni PC sta nel foglio
+# nascosto "DatiSoftware", da cui il foglio Software viene ricostruito a ogni censimento.
 # Funzioni pure: conversione dei dati grezzi raccolti sul PC e modifiche da fare nei due fogli.
 
 function New-HDColonnaFoglio {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Crea solo un oggetto in memoria')]
-    param([string]$Chiave, [string]$Titolo, [double]$Larghezza)
-    [pscustomobject]@{ Chiave = $Chiave; Titolo = $Titolo; Larghezza = $Larghezza; Sinonimi = @(); Manuale = $false; Numerica = $false; Testo = $true }
+    param([string]$Chiave, [string]$Titolo, [double]$Larghezza, [switch]$Numerica)
+    [pscustomobject]@{ Chiave = $Chiave; Titolo = $Titolo; Larghezza = $Larghezza; Sinonimi = @(); Manuale = $false; Numerica = [bool]$Numerica; Testo = (-not $Numerica) }
 }
 
 $script:HDFoglioDettagli = 'Dettagli'
 $script:HDFoglioSoftware = 'Software'
+$script:HDFoglioDatiSoftware = 'DatiSoftware'
 
 $script:HDColonneDettagli = @(
     New-HDColonnaFoglio 'Hostname' 'Hostname' 18
@@ -19,7 +21,7 @@ $script:HDColonneDettagli = @(
     New-HDColonnaFoglio 'SecureBoot' 'Secure Boot' 14
     New-HDColonnaFoglio 'Avvio' 'Avvio' 9
     New-HDColonnaFoglio 'DischiFisici' 'Dischi fisici' 48
-    New-HDColonnaFoglio 'BitLocker' 'BitLocker' 24
+    New-HDColonnaFoglio 'Smart' 'SMART dei dischi' 50
     New-HDColonnaFoglio 'Bios' 'BIOS' 24
     New-HDColonnaFoglio 'Monitor' 'Monitor' 44
     New-HDColonnaFoglio 'Stampanti' 'Stampanti' 44
@@ -31,15 +33,23 @@ $script:HDColonneDettagli = @(
     New-HDColonnaFoglio 'Rilevato' 'Rilevato il' 17
 )
 
+# Foglio Software: una riga per programma (ricostruito ogni volta, non va modificato a mano)
 $script:HDColonneSoftware = @(
-    New-HDColonnaFoglio 'Hostname' 'Hostname' 18
     New-HDColonnaFoglio 'Programma' 'Programma' 46
-    New-HDColonnaFoglio 'Versione' 'Versione' 18
-    New-HDColonnaFoglio 'Editore' 'Editore' 30
-    New-HDColonnaFoglio 'Installato' 'Installato il' 13
-    New-HDColonnaFoglio 'Presente' 'Presente' 10
-    New-HDColonnaFoglio 'UltimaRilevazione' 'Ultima rilevazione' 17
+    New-HDColonnaFoglio 'Editore' 'Editore' 28
+    New-HDColonnaFoglio 'Versioni' 'Versioni' 40
+    New-HDColonnaFoglio 'NumeroPC' 'N. PC' 8 -Numerica
+    New-HDColonnaFoglio 'PC' 'PC' 60
 )
+
+# Foglio nascosto DatiSoftware: una riga per PC, programmi "nome<TAB>versione<TAB>editore" uno per riga
+$script:HDColonneDatiSoftware = @(
+    New-HDColonnaFoglio 'Hostname' 'Hostname' 18
+    New-HDColonnaFoglio 'SerialNumber' 'Serial Number' 16
+    New-HDColonnaFoglio 'Rilevato' 'Rilevato il' 17
+    New-HDColonnaFoglio 'Programmi' 'Programmi' 80
+)
+$script:HDMassimoCella = 32000
 
 # Voci dell'elenco programmi che non sono programmi per chi fa il censimento
 $script:HDSoftwareRumore = '(?i)^(KB\d+|Security Update|Update for|Hotfix|Aggiornamento (della sicurezza )?per)|Microsoft Visual C\+\+ .*(Redistributable|Runtime)|Microsoft \.NET (Runtime|Host|AppHost|Toolset|Targeting|SDK)|Microsoft \.NET Framework .*(Targeting|SDK|Multi-Targeting)|Microsoft Windows Desktop Runtime|Microsoft ASP\.NET Core|Windows Software Development Kit|Windows SDK|^vs_|Microsoft Update Health Tools|Microsoft Edge WebView2|Office 16 Click-to-Run|Microsoft Office .*(MUI|Proofing|Shared|Language Pack|Click-to-Run)|Strumenti di correzione'
@@ -191,6 +201,26 @@ function Format-HDDischiFisici {
         }
     }
     @($voci) -join '; '
+}
+
+function Format-HDSmart {
+    # Contatori di affidabilità dei dischi (servono i diritti di amministratore):
+    # "Samsung SSD 980 500GB: usura 3%, 38 °C, 2.140 ore, nessun errore"
+    param($Contatori, $Previsione)
+    $voci = foreach ($c in @($Contatori | Where-Object { $_ })) {
+        $parti = @()
+        if ("$($c.Usura)" -ne '') { $parti += ('usura {0}%' -f [int]$c.Usura) }
+        if ([int]"0$($c.Temperatura)" -gt 0) { $parti += ('{0} °C' -f [int]$c.Temperatura) }
+        if ("$($c.Ore)" -ne '') { $parti += ('{0} ore' -f (Format-HDNumero ([double]$c.Ore) 0)) }
+        $errori = [int64]"0$($c.ErroriLettura)" + [int64]"0$($c.ErroriScrittura)"
+        if ($errori -gt 0) { $parti += ('ATTENZIONE {0} errori non corretti' -f $errori) }
+        elseif ("$($c.ErroriLettura)$($c.ErroriScrittura)" -ne '') { $parti += 'nessun errore' }
+        if ($parti.Count -eq 0) { $parti += 'nessun dato dal disco' }
+        '{0}: {1}' -f ([string]$c.Disco).Trim(), ($parti -join ', ')
+    }
+    $testo = @($voci) -join '; '
+    if (@($Previsione | Where-Object { $_ -and $_.PredictFailure }).Count -gt 0) { $testo = ('GUASTO PREVISTO dallo SMART; ' + $testo).TrimEnd(' ', ';') }
+    $testo
 }
 
 function Format-HDBitLocker {
@@ -395,7 +425,7 @@ function ConvertTo-HDDettagliPC {
         SecureBoot         = $secureBoot
         Avvio              = $avvio
         DischiFisici       = (Format-HDDischiFisici -Dischi $Grezzo.DischiFisici -DischiWin32 $Grezzo.DischiWin32)
-        BitLocker          = (Format-HDBitLocker -Admin $Grezzo.BitLockerAdmin -Shell $Grezzo.BitLockerShell)
+        Smart              = (Format-HDSmart -Contatori $Grezzo.Smart -Previsione $Grezzo.SmartPrevisione)
         Bios               = (Format-HDFirmware $Grezzo.Bios)
         Monitor            = (Format-HDMonitor $Grezzo.Monitor)
         Stampanti          = (Format-HDStampanti $Grezzo.Stampanti)
@@ -412,7 +442,7 @@ function ConvertTo-HDDettagliPC {
     }
     $dettagli = @{}
     foreach ($k in $valori.Keys) { $dettagli[$k] = [string]$valori[$k] }
-    [pscustomobject]@{ Dettagli = $dettagli; Software = $programmi }
+    [pscustomobject]@{ Dettagli = $dettagli; Software = $programmi; BitLocker = (Format-HDBitLocker -Admin $Grezzo.BitLockerAdmin -Shell $Grezzo.BitLockerShell) }
 }
 
 #region Fogli Dettagli e Software nell'Excel
@@ -420,11 +450,12 @@ function ConvertTo-HDDettagliPC {
 function ConvertTo-HDTabellaFoglio {
     # Foglio con nome e colonne fissi (Dettagli, Software) -> righe. Esiste = $false se il foglio manca
     # (verrà creato alla scrittura); Conflitto = $true se c'è un foglio con quel nome ma con altro contenuto.
-    param([object[]]$Fogli, [Parameter(Mandatory)][string]$Nome, [Parameter(Mandatory)][object[]]$Colonne)
+    param([object[]]$Fogli, [Parameter(Mandatory)][string]$Nome, [Parameter(Mandatory)][object[]]$Colonne, [switch]$Nascosto)
     $mappaTitoli = @{}
     foreach ($c in $Colonne) { $mappaTitoli[(ConvertTo-HDChiave $c.Titolo)] = $c.Chiave }
     $tabella = [pscustomobject]@{
-        Nome = $Nome; Definizione = $Colonne; Esiste = $false; Conflitto = $false; ScriviIntestazione = $false
+        Nome = $Nome; Definizione = $Colonne; Esiste = $false; Conflitto = $false; ScriviIntestazione = $false; Nascosto = [bool]$Nascosto
+        UltimaColonna = $Colonne.Count; DaAggiungere = @()
         ParteFoglio = $null; IndiceFoglio = -1; RigaIntestazione = 1
         Colonne = @{}; Righe = (New-Object System.Collections.Generic.List[object]); UltimaRiga = 1
     }
@@ -450,6 +481,8 @@ function ConvertTo-HDTabellaFoglio {
     }
     $tabella.RigaIntestazione = $intestazione.Riga
     $tabella.Colonne = $intestazione.Colonne
+    $tabella.UltimaColonna = [int](@($f.Righe[$intestazione.Riga].Keys) | ForEach-Object { [int]$_ } | Measure-Object -Maximum).Maximum
+    $tabella.DaAggiungere = @($Colonne | Where-Object { -not $intestazione.Colonne.ContainsKey($_.Chiave) })
     $tabella.UltimaRiga = $intestazione.Riga
     foreach ($n in $f.Righe.Keys) {
         if ($n -le $intestazione.Riga) { continue }
@@ -464,9 +497,38 @@ function ConvertTo-HDTabellaFoglio {
     $tabella
 }
 
+function Add-HDColonneMancanti {
+    # Colonne previste ma assenti nell'Excel: intestazione nella prima colonna libera in fondo
+    param([Parameter(Mandatory)]$Tabella, [object[]]$Colonne, [Parameter(Mandatory)][hashtable]$Modifiche)
+    foreach ($c in @($Colonne | Where-Object { $_ })) {
+        if ($Tabella.Colonne.ContainsKey($c.Chiave)) { continue }
+        $Tabella.UltimaColonna = [int]$Tabella.UltimaColonna + 1
+        $Tabella.Colonne[$c.Chiave] = $Tabella.UltimaColonna
+        if (-not $Modifiche.ContainsKey([int]$Tabella.RigaIntestazione)) { $Modifiche[[int]$Tabella.RigaIntestazione] = @{} }
+        $Modifiche[[int]$Tabella.RigaIntestazione][$c.Chiave] = $c.Titolo
+    }
+}
+
+function Get-HDStatoFoglioSoftware {
+    # Il foglio Software viene riscritto ogni volta: va bene se manca, se è vuoto o se è nostro
+    param([object[]]$Fogli)
+    $f = @($Fogli | Where-Object { $_ -and $_.Nome -eq $script:HDFoglioSoftware }) | Select-Object -First 1
+    $stato = [pscustomobject]@{ Nome = $script:HDFoglioSoftware; Definizione = $script:HDColonneSoftware; Esiste = $false; Conflitto = $false; ParteFoglio = $null; IndiceFoglio = -1; Nascosto = $false }
+    if (-not $f) { return $stato }
+    $stato.Esiste = $true
+    $stato.ParteFoglio = $f.Parte
+    $stato.IndiceFoglio = $f.Indice
+    if ($f.Righe.Count -gt 0) {
+        $primaRiga = $f.Righe[@($f.Righe.Keys)[0]]
+        $titoli = @($primaRiga.Values | ForEach-Object { ConvertTo-HDChiave ([string]$_) })
+        if ($titoli -notcontains 'programma') { $stato.Conflitto = $true }
+    }
+    $stato
+}
+
 function Add-HDDettagliATabella {
     # Riga del PC nel foglio Dettagli: stesso numero di serie, altrimenti stesso hostname
-    param([Parameter(Mandatory)]$Tabella, [Parameter(Mandatory)][hashtable]$Valori, [Parameter(Mandatory)][hashtable]$Modifiche)
+    param([Parameter(Mandatory)]$Tabella, [Parameter(Mandatory)][hashtable]$Valori, [Parameter(Mandatory)][hashtable]$Modifiche, [hashtable]$SeVuoti = @{})
     $s = Get-HDNumeroSerie $Valori['SerialNumber']
     $h = ConvertTo-HDNomeHost $Valori['Hostname']
     $riga = $null
@@ -480,45 +542,86 @@ function Add-HDDettagliATabella {
     if (-not $riga) { $riga = New-HDRigaTabella $Tabella; $azione = 'Aggiunto' }
     $nuovi = @{}
     foreach ($k in $Valori.Keys) { if ([string]$Valori[$k] -ne '') { $nuovi[$k] = [string]$Valori[$k] } }
+    foreach ($k in $SeVuoti.Keys) { if (-not $nuovi.ContainsKey($k) -and -not $riga.Valori[$k]) { $nuovi[$k] = [string]$SeVuoti[$k] } }
     $diff = Get-HDDifferenze -Esistenti $riga.Valori -Nuovi $nuovi
     Add-HDRigaInTabella -Tabella $Tabella -Modifiche $Modifiche -Riga $riga -Diff $diff
     [pscustomobject]@{ Riga = $riga.Numero; Azione = $azione }
 }
 
-function Add-HDSoftwareATabella {
-    # Programmi del PC nel foglio Software: aggiorna quelli già presenti, aggiunge i nuovi e segna
-    # "Presente = No" quelli che non ci sono più (le righe non si cancellano mai).
-    param([Parameter(Mandatory)]$Tabella, [Parameter(Mandatory)][string]$Hostname, [object[]]$Programmi = @(), [string]$Data, [Parameter(Mandatory)][hashtable]$Modifiche)
-    $h = ConvertTo-HDNomeHost $Hostname
-    $esistenti = @{}
-    foreach ($r in $Tabella.Righe) {
-        if ((ConvertTo-HDNomeHost $r.Valori['Hostname']) -ne $h) { continue }
-        $k = ConvertTo-HDChiave $r.Valori['Programma']
-        if ($k -and -not $esistenti.ContainsKey($k)) { $esistenti[$k] = $r }
+function ConvertTo-HDTestoProgrammi {
+    # Programmi di un PC -> testo per il foglio DatiSoftware ("nome<TAB>versione<TAB>editore" per riga)
+    param([object[]]$Programmi)
+    $pulisci = { param($t) ([string]$t -replace '[\t\r\n]+', ' ').Trim() }
+    $righe = @(@($Programmi | Where-Object { $_ -and $_.Nome }) | ForEach-Object { '{0}{1}{2}{1}{3}' -f (& $pulisci $_.Nome), "`t", (& $pulisci $_.Versione), (& $pulisci $_.Editore) })
+    $testo = $righe -join "`n"
+    if ($testo.Length -gt $script:HDMassimoCella) {
+        # troppi programmi per una cella di Excel: prima si tolgono gli editori, poi si accorcia l'elenco
+        $testo = (@($righe | ForEach-Object { ($_ -split "`t")[0..1] -join "`t" }) -join "`n")
+        if ($testo.Length -gt $script:HDMassimoCella) { $testo = $testo.Substring(0, $testo.LastIndexOf("`n", $script:HDMassimoCella)) }
     }
-    $visti = @{}
-    $aggiunti = 0
-    foreach ($p in @($Programmi | Where-Object { $_ -and $_.Nome })) {
-        $k = ConvertTo-HDChiave $p.Nome
-        if ($visti.ContainsKey($k)) { continue }
-        $visti[$k] = $true
-        $riga = $esistenti[$k]
-        if (-not $riga) { $riga = New-HDRigaTabella $Tabella; $aggiunti++ }
-        $nuovi = @{ Hostname = $Hostname; Programma = [string]$p.Nome; Presente = 'Sì' }
-        if ($Data) { $nuovi['UltimaRilevazione'] = $Data }
-        foreach ($coppia in @(@('Versione', $p.Versione), @('Editore', $p.Editore), @('Installato', $p.Installato))) {
-            if ([string]$coppia[1]) { $nuovi[$coppia[0]] = [string]$coppia[1] }
+    $testo
+}
+
+function ConvertFrom-HDTestoProgrammi {
+    param([string]$Testo)
+    foreach ($riga in ([string]$Testo -split "`r?`n")) {
+        $campi = $riga -split "`t"
+        if (-not $campi[0].Trim()) { continue }
+        [pscustomobject]@{ Nome = $campi[0].Trim(); Versione = $(if ($campi.Count -gt 1) { $campi[1].Trim() } else { '' }); Editore = $(if ($campi.Count -gt 2) { $campi[2].Trim() } else { '' }) }
+    }
+}
+
+function Format-HDElencoPC {
+    # "Tutti", "Tutti tranne PC-3, PC-7" oppure l'elenco dei PC
+    param([string[]]$Con, [string[]]$Tutti)
+    $conPc = @($Con | Sort-Object -Unique)
+    $tuttiPc = @($Tutti | Sort-Object -Unique)
+    if ($tuttiPc.Count -ge 3 -and $conPc.Count -eq $tuttiPc.Count) { return 'Tutti' }
+    if ($tuttiPc.Count -ge 4 -and $conPc.Count -gt $tuttiPc.Count / 2) {
+        $senza = @($tuttiPc | Where-Object { $conPc -notcontains $_ })
+        return 'Tutti tranne ' + ($senza -join ', ')
+    }
+    $conPc -join ', '
+}
+
+function Format-HDVersioniPC {
+    # "131.0 (12 PC); 130.0: PC-3, PC-7" - le versioni su più di 3 PC con il numero, le altre con i PC
+    param([object[]]$Installazioni)
+    $gruppi = @($Installazioni | Group-Object { if ($_.Versione) { $_.Versione } else { '?' } } | Sort-Object @{ Expression = 'Count'; Descending = $true }, @{ Expression = 'Name'; Descending = $true })
+    if ($gruppi.Count -eq 0) { return '' }
+    if ($gruppi.Count -eq 1) { return $gruppi[0].Name }
+    $voci = for ($i = 0; $i -lt $gruppi.Count; $i++) {
+        $g = $gruppi[$i]
+        if ($g.Count -le 3) { '{0}: {1}' -f $g.Name, ((@($g.Group | ForEach-Object { $_.PC }) | Sort-Object) -join ', ') }
+        else { '{0} ({1} PC)' -f $g.Name, $g.Count }
+    }
+    $voci -join '; '
+}
+
+function ConvertTo-HDRigheSoftware {
+    # Righe del foglio DatiSoftware (una per PC) -> righe del foglio Software (una per programma)
+    param([object[]]$RighePC)
+    $pc = New-Object System.Collections.Generic.List[string]
+    $programmi = @{}
+    foreach ($r in @($RighePC | Where-Object { $_ -and $_.Valori['Hostname'] -and $_.Valori['Programmi'] })) {
+        $nomePc = [string]$r.Valori['Hostname']
+        if ($pc.Contains($nomePc)) { continue }
+        $pc.Add($nomePc)
+        $visti = @{}
+        foreach ($p in @(ConvertFrom-HDTestoProgrammi $r.Valori['Programmi'])) {
+            $k = ConvertTo-HDChiave $p.Nome
+            if ($visti.ContainsKey($k)) { continue }
+            $visti[$k] = $true
+            if (-not $programmi.ContainsKey($k)) { $programmi[$k] = [pscustomobject]@{ Nome = $p.Nome; Editore = ''; Installazioni = (New-Object System.Collections.Generic.List[object]) } }
+            if (-not $programmi[$k].Editore -and $p.Editore) { $programmi[$k].Editore = $p.Editore }
+            $programmi[$k].Installazioni.Add([pscustomobject]@{ PC = $nomePc; Versione = $p.Versione })
         }
-        $diff = Get-HDDifferenze -Esistenti $riga.Valori -Nuovi $nuovi
-        Add-HDRigaInTabella -Tabella $Tabella -Modifiche $Modifiche -Riga $riga -Diff $diff
     }
-    $rimossi = 0
-    foreach ($k in $esistenti.Keys) {
-        if ($visti.ContainsKey($k) -or $esistenti[$k].Valori['Presente'] -eq 'No') { continue }
-        Add-HDRigaInTabella -Tabella $Tabella -Modifiche $Modifiche -Riga $esistenti[$k] -Diff @{ Presente = 'No' }
-        $rimossi++
+    $tutti = $pc.ToArray()
+    foreach ($voce in @($programmi.Values | Sort-Object Nome)) {
+        $con = @($voce.Installazioni | ForEach-Object { $_.PC })
+        , @($voce.Nome, $voce.Editore, (Format-HDVersioniPC $voce.Installazioni.ToArray()), [string]$con.Count, (Format-HDElencoPC -Con $con -Tutti $tutti))
     }
-    [pscustomobject]@{ Aggiunti = $aggiunti; Rimossi = $rimossi; Totale = $visti.Count }
 }
 
 #endregion

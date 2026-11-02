@@ -38,6 +38,14 @@ $script:HDRaccoltaCensimento = {
     $g.Tpm = Leggi { Get-CimInstance -Namespace 'root/cimv2/Security/MicrosoftTpm' -ClassName Win32_Tpm -ErrorAction Stop | Select-Object -First 1 SpecVersion, IsEnabled_InitialValue, IsActivated_InitialValue }
     $g.TpmDispositivi = Leggi { [pscustomobject]@{ Nomi = @(Get-CimInstance -ClassName Win32_PnPEntity -Filter "PNPClass='SecurityDevices'" -ErrorAction Stop | ForEach-Object { [string]$_.Name }) } }
     $g.DischiFisici = Leggi { @(Get-CimInstance -Namespace 'root/Microsoft/Windows/Storage' -ClassName MSFT_PhysicalDisk -ErrorAction Stop | Select-Object FriendlyName, MediaType, BusType, Size, HealthStatus) }
+    # SMART: contatori di affidabilità (temperatura, usura, ore, errori) e previsione di guasto. Servono i diritti di amministratore.
+    $g.Smart = Leggi {
+        @(Get-CimInstance -Namespace 'root/Microsoft/Windows/Storage' -ClassName MSFT_PhysicalDisk -ErrorAction Stop | Where-Object { [string]$_.BusType -ne '7' } | ForEach-Object {
+                $c = Get-CimAssociatedInstance -InputObject $_ -ResultClassName MSFT_StorageReliabilityCounter -ErrorAction Stop | Select-Object -First 1
+                [pscustomobject]@{ Disco = [string]$_.FriendlyName; Temperatura = $c.Temperature; Usura = $c.Wear; Ore = $c.PowerOnHours; ErroriLettura = $c.ReadErrorsUncorrected; ErroriScrittura = $c.WriteErrorsUncorrected }
+            })
+    }
+    $g.SmartPrevisione = Leggi { @(Get-CimInstance -Namespace 'root/wmi' -ClassName MSStorageDriver_FailurePredictStatus -ErrorAction Stop | Select-Object InstanceName, PredictFailure) }
     if ($null -eq $g.DischiFisici) { $g.DischiWin32 = Leggi { @(Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop | Select-Object Model, Size, MediaType, InterfaceType, Status) } }
     $g.BitLockerAdmin = Leggi { @(Get-CimInstance -Namespace 'root/cimv2/Security/MicrosoftVolumeEncryption' -ClassName Win32_EncryptableVolume -ErrorAction Stop | Select-Object DriveLetter, ProtectionStatus) }
     if ($null -eq $g.BitLockerAdmin) {
@@ -161,29 +169,27 @@ function Get-HDModelloCensimento {
 }
 
 function Get-HDFogliPrincipali {
-    # I fogli in cui cercare il censimento: tutti tranne Dettagli e Software
+    # I fogli in cui cercare il censimento: tutti tranne Dettagli, Software e DatiSoftware
     param([object[]]$Fogli)
-    $principali = @($Fogli | Where-Object { $_.Nome -ne $script:HDFoglioDettagli -and $_.Nome -ne $script:HDFoglioSoftware })
+    $nostri = @($script:HDFoglioDettagli, $script:HDFoglioSoftware, $script:HDFoglioDatiSoftware)
+    $principali = @($Fogli | Where-Object { $nostri -notcontains $_.Nome })
     if ($principali.Count -eq 0) { return $Fogli }
     $principali
 }
 
 function Get-HDTabellaCensimento {
-    # Foglio principale del censimento, più il foglio Dettagli e (con -ConSoftware) il foglio Software
-    param([Parameter(Mandatory)][string]$Percorso, [switch]$ConSoftware)
+    # Foglio principale del censimento, più i fogli Dettagli, DatiSoftware e (stato del) Software
+    param([Parameter(Mandatory)][string]$Percorso)
     $p = Resolve-HDPercorso $Percorso
     if ([System.IO.Path]::GetExtension($p) -ne '.xlsx') {
         throw "Il censimento deve essere un file .xlsx (in Excel: File > Salva con nome > Cartella di lavoro di Excel): $p"
     }
-    $escludi = @()
-    if (-not $ConSoftware) { $escludi = @($script:HDFoglioSoftware) }
-    $fogli = @(Read-HDXlsx -Percorso $p -EscludiFogli $escludi)
+    $fogli = @(Read-HDXlsx -Percorso $p)
     $t = ConvertTo-HDTabellaCensimento -Fogli (Get-HDFogliPrincipali $fogli) -Percorso $p
     $t | Add-Member -NotePropertyName RigheIniziali -NotePropertyValue $t.Righe.Count
     $t | Add-Member -NotePropertyName Dettagli -NotePropertyValue (ConvertTo-HDTabellaFoglio -Fogli $fogli -Nome $script:HDFoglioDettagli -Colonne $script:HDColonneDettagli)
-    $software = $null
-    if ($ConSoftware) { $software = ConvertTo-HDTabellaFoglio -Fogli $fogli -Nome $script:HDFoglioSoftware -Colonne $script:HDColonneSoftware }
-    $t | Add-Member -NotePropertyName Software -NotePropertyValue $software
+    $t | Add-Member -NotePropertyName DatiSoftware -NotePropertyValue (ConvertTo-HDTabellaFoglio -Fogli $fogli -Nome $script:HDFoglioDatiSoftware -Colonne $script:HDColonneDatiSoftware -Nascosto)
+    $t | Add-Member -NotePropertyName Software -NotePropertyValue (Get-HDStatoFoglioSoftware $fogli)
     $t
 }
 
@@ -221,18 +227,19 @@ function Resolve-HDFileCensimento {
 
 function Save-HDCensimento {
     # Scrittura sicura: copia temporanea, modifica, rilettura di controllo, backup, sostituzione.
-    # -Extra: modifiche per i fogli Dettagli e Software (@{ Tabella; Modifiche }), che vengono
-    # creati se nel file non ci sono ancora.
+    # -Extra: modifiche per gli altri fogli (@{ Tabella; Modifiche }) oppure fogli da riscrivere
+    # per intero (@{ Tabella; Riscrivi = righe }). I fogli che mancano vengono creati.
     param([Parameter(Mandatory)]$Tabella, [Parameter(Mandatory)][hashtable]$Modifiche, [object[]]$Extra = @())
     $lista = @(ConvertTo-HDModificheXlsx -Tabella $Tabella -Modifiche $Modifiche)
     $altri = @(foreach ($e in @($Extra | Where-Object { $_ -and $_.Tabella })) {
+            if ($null -ne $e.Riscrivi) { [pscustomobject]@{ Tabella = $e.Tabella; Lista = @(); Riscrivi = @($e.Riscrivi) }; continue }
             $l = @(ConvertTo-HDModificheXlsx -Tabella $e.Tabella -Modifiche $e.Modifiche)
             if ($l.Count -gt 0 -and $e.Tabella.ScriviIntestazione) {
                 $celle = @{}
                 for ($i = 0; $i -lt $e.Tabella.Definizione.Count; $i++) { $celle[$i + 1] = $e.Tabella.Definizione[$i].Titolo }
                 $l = @(@{ Riga = 1; Celle = $celle }) + $l
             }
-            if ($l.Count -gt 0) { [pscustomobject]@{ Tabella = $e.Tabella; Lista = $l } }
+            if ($l.Count -gt 0) { [pscustomobject]@{ Tabella = $e.Tabella; Lista = $l; Riscrivi = $null } }
         })
     if ($lista.Count -eq 0 -and $altri.Count -eq 0) { return [pscustomobject]@{ Scritto = $false; Backup = $null; Saltate = @() } }
     $cfg = Get-HDConfig
@@ -253,9 +260,14 @@ function Save-HDCensimento {
             $parte = $a.Tabella.ParteFoglio
             $indice = $a.Tabella.IndiceFoglio
             if (-not $a.Tabella.Esiste) {
-                $creato = Add-HDFoglioXlsx -Percorso $temporaneo -NomeFoglio $a.Tabella.Nome -Colonne $a.Tabella.Definizione
+                $creato = Add-HDFoglioXlsx -Percorso $temporaneo -NomeFoglio $a.Tabella.Nome -Colonne $a.Tabella.Definizione -Nascosto:([bool]$a.Tabella.Nascosto)
                 $parte = $creato.Parte
                 $indice = $creato.Indice
+            }
+            if ($null -ne $a.Riscrivi) {
+                $numericheFoglio = @(for ($i = 0; $i -lt $a.Tabella.Definizione.Count; $i++) { if ($a.Tabella.Definizione[$i].Numerica) { $i + 1 } })
+                Set-HDRigheFoglio -Percorso $temporaneo -ParteFoglio $parte -IndiceFoglio $indice -Intestazione @($a.Tabella.Definizione | ForEach-Object { $_.Titolo }) -Righe $a.Riscrivi -ColonneNumeriche $numericheFoglio
+                continue
             }
             $celleSaltate = Update-HDXlsx -Percorso $temporaneo -ParteFoglio $parte -IndiceFoglio $indice -Modifiche $a.Lista -RigaIntestazione $a.Tabella.RigaIntestazione
             foreach ($x in $celleSaltate) { if ($x) { $saltate.Add($x) } }
@@ -363,12 +375,15 @@ function Add-HDExtraATabelle {
     # Rilevazioni -> modifiche per i fogli Dettagli e Software
     param([Parameter(Mandatory)]$Tabella, [Parameter(Mandatory)][object[]]$Rilevazioni)
     $modDettagli = @{}
-    $modSoftware = @{}
+    $modDati = @{}
     $riepilogo = @{}
-    foreach ($nome in 'Dettagli', 'Software') {
+    foreach ($nome in 'Dettagli', 'Software', 'DatiSoftware') {
         $t = $Tabella.$nome
         if ($t -and $t.Conflitto) { Write-Warning ("Nell'Excel c'è già un foglio '{0}' con un altro contenuto: quei dati non vengono scritti (rinomina il tuo foglio per averli)." -f $t.Nome) }
     }
+    $conDettagli = $Tabella.Dettagli -and -not $Tabella.Dettagli.Conflitto
+    $conSoftware = $Tabella.DatiSoftware -and -not $Tabella.DatiSoftware.Conflitto -and $Tabella.Software -and -not $Tabella.Software.Conflitto
+    if ($conDettagli -and $Tabella.Dettagli.Esiste) { Add-HDColonneMancanti -Tabella $Tabella.Dettagli -Colonne $Tabella.Dettagli.DaAggiungere -Modifiche $modDettagli }
     foreach ($ril in $Rilevazioni) {
         $rec = $ril.Dati
         $data = ''
@@ -377,23 +392,29 @@ function Add-HDExtraATabelle {
             $quando = [datetime]::MinValue
             if ([datetime]::TryParse([string]$ril.Rilevato, $script:HDInvariante, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$quando)) { $data = Format-HDData $quando.ToLocalTime() }
         }
-        if ($rec.Dettagli -and $Tabella.Dettagli -and -not $Tabella.Dettagli.Conflitto) {
+        if ($rec.Dettagli -and $conDettagli) {
             $valori = @{}
             $grezzi = ConvertTo-HDTabellaHash $rec.Dettagli
             foreach ($k in $grezzi.Keys) { $valori[$k] = [string]$grezzi[$k] }
             $valori['Hostname'] = [string]$rec.Hostname
             $valori['SerialNumber'] = [string]$rec.SerialNumber
             $valori['Rilevato'] = $data
-            [void](Add-HDDettagliATabella -Tabella $Tabella.Dettagli -Valori $valori -Modifiche $modDettagli)
+            [void](Add-HDDettagliATabella -Tabella $Tabella.Dettagli -Valori $valori -Modifiche $modDettagli -SeVuoti @{ Smart = 'Avvia il toolkit come amministratore per leggerlo' })
         }
-        if ($null -ne $rec.Software -and $Tabella.Software -and -not $Tabella.Software.Conflitto) {
-            $riepilogo[[string]$rec.Hostname] = Add-HDSoftwareATabella -Tabella $Tabella.Software -Hostname ([string]$rec.Hostname) -Programmi @($rec.Software) -Data $data -Modifiche $modSoftware
+        if ($null -ne $rec.Software -and $conSoftware) {
+            $programmi = @($rec.Software | Where-Object { $_ })
+            $valori = @{ Hostname = [string]$rec.Hostname; SerialNumber = [string]$rec.SerialNumber; Rilevato = $data; Programmi = (ConvertTo-HDTestoProgrammi $programmi) }
+            [void](Add-HDDettagliATabella -Tabella $Tabella.DatiSoftware -Valori $valori -Modifiche $modDati)
+            $riepilogo[[string]$rec.Hostname] = [pscustomobject]@{ Totale = $programmi.Count }
         }
     }
-    [pscustomobject]@{
-        Extra     = @(@{ Tabella = $Tabella.Dettagli; Modifiche = $modDettagli }, @{ Tabella = $Tabella.Software; Modifiche = $modSoftware })
-        Riepilogo = $riepilogo
+    $extra = @(@{ Tabella = $Tabella.Dettagli; Modifiche = $modDettagli })
+    if ($riepilogo.Count -gt 0) {
+        # il foglio Software si ricostruisce da DatiSoftware (già aggiornato in memoria)
+        $extra += @{ Tabella = $Tabella.Software; Riscrivi = @(ConvertTo-HDRigheSoftware $Tabella.DatiSoftware.Righe) }
+        $extra += @{ Tabella = $Tabella.DatiSoftware; Modifiche = $modDati }
     }
+    [pscustomobject]@{ Extra = $extra; Riepilogo = $riepilogo }
 }
 
 function Invoke-HDSincronizzazione {
@@ -408,9 +429,11 @@ function Invoke-HDSincronizzazione {
             catch { Write-Warning "Rilevazione illeggibile, la lascio da parte: $($f.FullName)" }
         })
     if ($rilevazioni.Count -eq 0) { return $vuoto }
-    $serveSoftware = @($rilevazioni | Where-Object { $null -ne $_.Dati.Software }).Count -gt 0
-    $tabella = Get-HDTabellaCensimento $FileCensimento -ConSoftware:$serveSoftware
+    $tabella = Get-HDTabellaCensimento $FileCensimento
     $applicate = Add-HDRilevazioniATabella -Tabella $tabella -Rilevazioni $rilevazioni
+    # colonne arrivate con le versioni nuove (es. BitLocker): si aggiungono in fondo se servono
+    $daAggiungere = @($tabella.DaAggiungere | Where-Object { $k = $_.Chiave; @($rilevazioni | Where-Object { [string]$_.Dati.$k }).Count -gt 0 })
+    if ($daAggiungere.Count -gt 0) { Add-HDColonneMancanti -Tabella $tabella -Colonne $daAggiungere -Modifiche $applicate.Modifiche }
     $extra = Add-HDExtraATabelle -Tabella $tabella -Rilevazioni $rilevazioni
     try { $s = Save-HDCensimento -Tabella $tabella -Modifiche $applicate.Modifiche -Extra $extra.Extra }
     catch { return [pscustomobject]@{ Esiti = $applicate.Esiti; Scritto = $false; Backup = $null; Saltate = @(); Errore = $_.Exception.Message; Inserite = 0; Software = $extra.Riepilogo } }
@@ -464,10 +487,12 @@ function New-Censimento {
             @{ Nome = $script:HDFoglioDettagli; Colonne = $script:HDColonneDettagli; Evidenzia = @{
                     $dettagli['Windows11']          = 'LEFT({0},3)="No:"'
                     $dettagli['DischiFisici']       = 'OR(ISNUMBER(SEARCH("GUASTO",{0})),ISNUMBER(SEARCH("ATTENZIONE",{0})))'
+                    $dettagli['Smart']              = 'OR(ISNUMBER(SEARCH("GUASTO",{0})),ISNUMBER(SEARCH("ATTENZIONE",{0})))'
                     $dettagli['AttivazioneWindows'] = 'LEFT({0},12)="Non attivato"'
                 }
             }
             @{ Nome = $script:HDFoglioSoftware; Colonne = $script:HDColonneSoftware }
+            @{ Nome = $script:HDFoglioDatiSoftware; Colonne = $script:HDColonneDatiSoftware; Nascosto = $true }
         )
         New-HDXlsx -Percorso $p -NomeFoglio 'Censimento' -Colonne $script:HDColonneCensimento `
             -Elenchi @{ $indice['TipoIP'] = 'DHCP,Statico'; $indice['Cynet'] = 'Sì,No' } `
@@ -572,6 +597,7 @@ function Show-HDSchedaCensimento {
         'Processor Type'    = $Record.Processor
         'Free Disk Space'   = $Record.FreeDiskPct
         'Logical Disk Size' = $Record.DiskSize
+        'BitLocker'         = $Record.BitLocker
     }
     foreach ($k in $righe.Keys) { Write-Host ('  {0,-19}{1}' -f $k, $righe[$k]) }
     if ($Record.Cynet -eq 'Sì') {
@@ -690,7 +716,7 @@ function Add-PCCensimento {
     if (-not $esito.Errore) {
         foreach ($h in @($esito.Software.Keys)) {
             $sw = $esito.Software[$h]
-            Write-Host (' {0}: {1} programmi nel foglio Software ({2} nuovi, {3} non più presenti)' -f $h, $sw.Totale, $sw.Aggiunti, $sw.Rimossi) -ForegroundColor Green
+            Write-Host (' {0}: {1} programmi, riepilogati nel foglio Software' -f $h, $sw.Totale) -ForegroundColor Green
         }
     }
     if ($esito.Inserite -gt $raccolti.Count) { Write-Host (' Inserite anche {0} rilevazioni rimaste in sospeso.' -f ($esito.Inserite - $raccolti.Count)) -ForegroundColor Cyan }

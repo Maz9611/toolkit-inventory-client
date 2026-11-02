@@ -38,6 +38,11 @@
                 [pscustomobject]@{ FriendlyName = 'Chiavetta USB'; MediaType = 0; BusType = 7; Size = 32GB; HealthStatus = 0 }
             )
             BitLockerAdmin = @([pscustomobject]@{ DriveLetter = 'C:'; ProtectionStatus = 1 })
+            Smart = @(
+                [pscustomobject]@{ Disco = 'Samsung SSD 980 500GB'; Temperatura = 38; Usura = 3; Ore = 2140; ErroriLettura = 0; ErroriScrittura = 0 }
+                [pscustomobject]@{ Disco = 'WDC WD10EZEX'; Temperatura = 41; Usura = $null; Ore = 31200; ErroriLettura = 12; ErroriScrittura = 0 }
+            )
+            SmartPrevisione = @([pscustomobject]@{ InstanceName = 'x'; PredictFailure = $false })
             Monitor = @(
                 [pscustomobject]@{ Produttore = 'DEL'; Nome = 'DELL P2419H'; Seriale = 'CFV9N93'; Anno = 2020 }
                 [pscustomobject]@{ Produttore = 'SAM'; Nome = 'S24F350'; Seriale = '0'; Anno = 2018 }
@@ -126,8 +131,16 @@ Describe 'Hardware, software e licenze -> testi del foglio Dettagli' {
         $script:Det.Dettagli.DischiFisici | Should -Be 'Samsung SSD 980 500GB (SSD NVMe, 500 GB, OK); WDC WD10EZEX (HDD SATA, 1000 GB, ATTENZIONE)'
     }
 
-    It 'BitLocker, BIOS, monitor (con la marca) e stampanti vere' {
-        $script:Det.Dettagli.BitLocker | Should -Be 'C: attiva'
+    It 'SMART dei dischi: usura, temperatura, ore ed errori' {
+        $script:Det.Dettagli.Smart | Should -Be 'Samsung SSD 980 500GB: usura 3%, 38 °C, 2.140 ore, nessun errore; WDC WD10EZEX: 41 °C, 31.200 ore, ATTENZIONE 12 errori non corretti'
+        InModuleScope HelpDeskToolkit {
+            Format-HDSmart -Contatori @([pscustomobject]@{ Disco = 'SSD'; Usura = 1 }) -Previsione @([pscustomobject]@{ PredictFailure = $true }) | Should -Be 'GUASTO PREVISTO dallo SMART; SSD: usura 1%'
+            Format-HDSmart | Should -Be ''
+        }
+    }
+
+    It 'BitLocker (per il foglio principale), BIOS, monitor (con la marca) e stampanti vere' {
+        $script:Det.BitLocker | Should -Be 'C: attiva'
         $script:Det.Dettagli.Bios | Should -Be '1.15.0 (12/03/2022)'
         $script:Det.Dettagli.Monitor | Should -Be 'DELL P2419H (S/N CFV9N93, 2020); Samsung S24F350 (2018)'
         $script:Det.Dettagli.Stampanti | Should -Be 'HP LaserJet M404 [192.168.1.50] (predefinita)'
@@ -165,10 +178,41 @@ Describe 'Hardware, software e licenze -> testi del foglio Dettagli' {
         $vuoto.Dettagli.Windows11 | Should -BeLike 'Da verificare*'
     }
 
-    It 'il record del censimento porta Dettagli e Software' {
+    It 'il record del censimento porta BitLocker, Dettagli e Software' {
         $r = InModuleScope HelpDeskToolkit -Parameters @{ G = (New-GrezzoCompleto) } { param($G) ConvertTo-HDRecordCensimento -Grezzo $G }
+        $r.BitLocker | Should -Be 'C: attiva'
         $r.Dettagli.TPM | Should -Be '2.0'
         @($r.Software).Count | Should -Be 4
+    }
+}
+
+Describe 'Foglio Software: una riga per programma' {
+    It 'riassume i PC: tutti, tutti tranne, elenco; e le versioni' {
+        InModuleScope HelpDeskToolkit {
+            $righe = foreach ($pc in 'PC-1', 'PC-2', 'PC-3', 'PC-4', 'PC-5') {
+                $programmi = @([pscustomobject]@{ Nome = 'Google Chrome'; Versione = '131.0'; Editore = 'Google LLC' })
+                if ($pc -ne 'PC-4') { $programmi += [pscustomobject]@{ Nome = 'Adobe Acrobat Reader'; Versione = '24.003'; Editore = 'Adobe' } }
+                if ($pc -eq 'PC-2') { $programmi[0].Versione = '130.0'; $programmi += [pscustomobject]@{ Nome = 'AutoCAD 2024'; Versione = '24.3'; Editore = 'Autodesk' } }
+                [pscustomobject]@{ Numero = 1; Valori = @{ Hostname = $pc; Programmi = (ConvertTo-HDTestoProgrammi $programmi) } }
+            }
+            $foglio = @(ConvertTo-HDRigheSoftware $righe)
+            $foglio.Count | Should -Be 3
+            ($foglio | Where-Object { $_[0] -eq 'Google Chrome' }) | Should -Be @('Google Chrome', 'Google LLC', '131.0 (4 PC); 130.0: PC-2', '5', 'Tutti')
+            ($foglio | Where-Object { $_[0] -eq 'Adobe Acrobat Reader' }) | Should -Be @('Adobe Acrobat Reader', 'Adobe', '24.003', '4', 'Tutti tranne PC-4')
+            ($foglio | Where-Object { $_[0] -eq 'AutoCAD 2024' }) | Should -Be @('AutoCAD 2024', 'Autodesk', '24.3', '1', 'PC-2')
+            $foglio[0][0] | Should -Be 'Adobe Acrobat Reader'
+        }
+    }
+
+    It 'pochi PC: elenco dei nomi; un elenco troppo lungo per una cella si accorcia' {
+        InModuleScope HelpDeskToolkit {
+            Format-HDElencoPC -Con @('PC-2', 'PC-1') -Tutti @('PC-1', 'PC-2') | Should -Be 'PC-1, PC-2'
+            Format-HDElencoPC -Con @('PC-1') -Tutti @('PC-1', 'PC-2', 'PC-3', 'PC-4') | Should -Be 'PC-1'
+            $tanti = @(1..2000 | ForEach-Object { [pscustomobject]@{ Nome = "Programma con un nome lungo numero $_"; Versione = '1.0.0.1234'; Editore = 'Editore con un nome lungo' } })
+            $testo = ConvertTo-HDTestoProgrammi $tanti
+            $testo.Length | Should -BeLessOrEqual $script:HDMassimoCella
+            @(ConvertFrom-HDTestoProgrammi $testo)[0].Nome | Should -Be 'Programma con un nome lungo numero 1'
+        }
     }
 }
 
@@ -178,51 +222,89 @@ Describe 'Fogli Dettagli e Software nell''Excel' {
         $script:File = (New-Censimento -Cliente 'Dettagli' -Confirm:$false).FullName
     }
 
-    It 'un Excel nuovo ha i tre fogli' {
-        @(Get-Fogli $script:File | ForEach-Object { $_.Nome }) | Should -Be @('Censimento', 'Dettagli', 'Software')
+    It 'un Excel nuovo ha i fogli Dettagli, Software e DatiSoftware (nascosto) e la colonna BitLocker' {
+        @(Get-Fogli $script:File | ForEach-Object { $_.Nome }) | Should -Be @('Censimento', 'Dettagli', 'Software', 'DatiSoftware')
     }
 
-    It 'il censimento scrive Dettagli e Software; al giro dopo aggiorna senza doppioni e segna i programmi tolti' {
+    It 'censisce due PC: Dettagli una riga per PC, Software una riga per programma; poi aggiorna senza doppioni' {
         Mock -ModuleName HelpDeskToolkit Invoke-HDRaccoltaInventario { New-GrezzoCompleto }
         $e = Add-PCCensimento -Censimento $script:File -NonChiedere -Confirm:$false 6>$null
         $e.Scritto | Should -BeTrue
-        $fogli = Get-Fogli $script:File
-        $dettagli = @(Get-RigheFoglio $fogli 'Dettagli')
-        $dettagli.Count | Should -Be 1
-        $dettagli[0][1] | Should -Be 'PC-AMMINISTRAZIONE'
-        $dettagli[0][2] | Should -Be 'SER-001'
-        $dettagli[0][4] | Should -Be '2.0'
-        @(Get-RigheFoglio $fogli 'Software').Count | Should -Be 4
-
         Mock -ModuleName HelpDeskToolkit Invoke-HDRaccoltaInventario {
-            New-GrezzoCompleto -Programmi @(
-                [pscustomobject]@{ DisplayName = 'Mozilla Firefox (x64 it)'; DisplayVersion = '132.0'; Publisher = 'Mozilla' }
-                [pscustomobject]@{ DisplayName = 'TeamViewer'; DisplayVersion = '15.51'; Publisher = 'TeamViewer' }
+            New-GrezzoCompleto -Nome 'PC-RECEPTION' -Serie 'SER-002' -Mac '00:11:22:33:44:02' -Programmi @(
+                [pscustomobject]@{ DisplayName = 'Mozilla Firefox (x64 it)'; DisplayVersion = '130.0'; Publisher = 'Mozilla' }
                 [pscustomobject]@{ DisplayName = '7-Zip 24.08 (x64)'; DisplayVersion = '24.08'; Publisher = 'Igor Pavlov' }
             )
         }
         [void](Add-PCCensimento -Censimento $script:File -NonChiedere -Confirm:$false 6>$null)
         $fogli = Get-Fogli $script:File
-        @(Get-RigheFoglio $fogli 'Dettagli').Count | Should -Be 1
+        $censimento = @(Get-RigheFoglio $fogli 'Censimento')
+        $censimento.Count | Should -Be 2
+        $censimento[0][20] | Should -Be 'C: attiva'
+        $dettagli = @(Get-RigheFoglio $fogli 'Dettagli')
+        $dettagli.Count | Should -Be 2
+        $dettagli[0][4] | Should -Be '2.0'
         $software = @(Get-RigheFoglio $fogli 'Software')
-        $software.Count | Should -Be 5
-        ($software | Where-Object { $_[2] -like 'Mozilla*' })[3] | Should -Be '132.0'
-        ($software | Where-Object { $_[2] -like 'Adobe*' })[6] | Should -Be 'No'
-        ($software | Where-Object { $_[2] -like '7-Zip*' })[6] | Should -Be 'Sì'
-        @(Get-RigheFoglio $fogli 'Censimento').Count | Should -Be 1
+        @($software | ForEach-Object { $_[1] }) | Should -Be @('7-Zip 24.08 (x64)', 'Adobe Acrobat Reader', 'Microsoft 365 Apps for business - it-it', 'Mozilla Firefox (x64 it)', 'TeamViewer')
+        ($software | Where-Object { $_[1] -like 'Mozilla*' })[3] | Should -Be '131.0: PC-AMMINISTRAZIONE; 130.0: PC-RECEPTION'
+        ($software | Where-Object { $_[1] -like 'Mozilla*' })[4] | Should -Be '2'
+        ($software | Where-Object { $_[1] -like 'Mozilla*' })[5] | Should -Be 'PC-AMMINISTRAZIONE, PC-RECEPTION'
+        ($software | Where-Object { $_[1] -like 'Adobe*' })[5] | Should -Be 'PC-AMMINISTRAZIONE'
+        @(Get-RigheFoglio $fogli 'DatiSoftware').Count | Should -Be 2
+
+        # di nuovo il primo PC, senza Adobe: sparisce dal riepilogo, nessuna riga doppia
+        Mock -ModuleName HelpDeskToolkit Invoke-HDRaccoltaInventario {
+            New-GrezzoCompleto -Programmi @([pscustomobject]@{ DisplayName = 'Mozilla Firefox (x64 it)'; DisplayVersion = '132.0'; Publisher = 'Mozilla' })
+        }
+        [void](Add-PCCensimento -Censimento $script:File -NonChiedere -Confirm:$false 6>$null)
+        $fogli = Get-Fogli $script:File
+        $software = @(Get-RigheFoglio $fogli 'Software')
+        @($software | ForEach-Object { $_[1] }) | Should -Be @('7-Zip 24.08 (x64)', 'Mozilla Firefox (x64 it)')
+        @(Get-RigheFoglio $fogli 'DatiSoftware').Count | Should -Be 2
+        @(Get-RigheFoglio $fogli 'Dettagli').Count | Should -Be 2
     }
 
-    It 'a un Excel di una versione precedente (un solo foglio) aggiunge i due fogli' {
+    It 'a un Excel di una versione precedente aggiunge la colonna BitLocker in fondo e i fogli mancanti' {
         $vecchio = Join-Path $script:CartellaCensimentoTest 'Censimento_Vecchio.xlsx'
-        InModuleScope HelpDeskToolkit -Parameters @{ P = $vecchio } { param($P) New-HDXlsx -Percorso $P -NomeFoglio 'Censimento' -Colonne $script:HDColonneCensimento }
+        InModuleScope HelpDeskToolkit -Parameters @{ P = $vecchio } { param($P) New-HDXlsx -Percorso $P -NomeFoglio 'Censimento' -Colonne @($script:HDColonneCensimento | Where-Object { $_.Chiave -ne 'BitLocker' }) }
         Mock -ModuleName HelpDeskToolkit Invoke-HDRaccoltaInventario { New-GrezzoCompleto -Nome 'PC-VECCHIO' -Serie 'SER-OLD' }
-        $e = Add-PCCensimento -Censimento $vecchio -NonChiedere -Confirm:$false 6>$null
+        $e = Add-PCCensimento -Censimento $vecchio -NonChiedere -Confirm:$false -WarningVariable avvisi 6>$null
         $e.Scritto | Should -BeTrue
+        @($avvisi) | Should -BeNullOrEmpty
         $fogli = Get-Fogli $vecchio
-        @($fogli | ForEach-Object { $_.Nome }) | Should -Be @('Censimento', 'Dettagli', 'Software')
+        @($fogli | ForEach-Object { $_.Nome }) | Should -Be @('Censimento', 'Dettagli', 'Software', 'DatiSoftware')
+        $principale = $fogli | Where-Object Nome -eq 'Censimento'
+        $principale.Righe[1][20] | Should -Be 'Locazione'
+        $principale.Righe[1][21] | Should -Be 'BitLocker'
+        $principale.Righe[2][21] | Should -Be 'C: attiva'
         ($fogli | Where-Object Nome -eq 'Dettagli').Righe[1][3] | Should -Be 'Pronto per Windows 11'
         @(Get-RigheFoglio $fogli 'Dettagli')[0][1] | Should -Be 'PC-VECCHIO'
         @(Get-RigheFoglio $fogli 'Software').Count | Should -Be 4
+    }
+
+    It 'un foglio Dettagli di prima riceve le colonne nuove (es. SMART) in fondo' {
+        $prima = Join-Path $script:CartellaCensimentoTest 'Censimento_Prima.xlsx'
+        InModuleScope HelpDeskToolkit -Parameters @{ P = $prima } {
+            param($P)
+            New-HDXlsx -Percorso $P -NomeFoglio 'Censimento' -Colonne $script:HDColonneCensimento -AltriFogli @(@{ Nome = 'Dettagli'; Colonne = @($script:HDColonneDettagli | Where-Object { $_.Chiave -ne 'Smart' }) })
+        }
+        Mock -ModuleName HelpDeskToolkit Invoke-HDRaccoltaInventario { New-GrezzoCompleto }
+        [void](Add-PCCensimento -Censimento $prima -NonChiedere -Confirm:$false 6>$null)
+        $d = (Get-Fogli $prima | Where-Object Nome -eq 'Dettagli').Righe
+        $ultima = InModuleScope HelpDeskToolkit { $script:HDColonneDettagli.Count }
+        $d[1][$ultima] | Should -Be 'SMART dei dischi'
+        $d[2][$ultima] | Should -BeLike 'Samsung SSD 980*'
+    }
+
+    It 'senza diritti di amministratore lo SMART dice come leggerlo, ma non cancella quello già letto' {
+        Mock -ModuleName HelpDeskToolkit Invoke-HDRaccoltaInventario { $g = New-GrezzoCompleto; $g.Smart = $null; $g }
+        [void](Add-PCCensimento -Censimento $script:File -NonChiedere -Confirm:$false 6>$null)
+        @(Get-RigheFoglio (Get-Fogli $script:File) 'Dettagli')[0][8] | Should -BeLike 'Avvia il toolkit come amministratore*'
+        Mock -ModuleName HelpDeskToolkit Invoke-HDRaccoltaInventario { New-GrezzoCompleto }
+        [void](Add-PCCensimento -Censimento $script:File -NonChiedere -Confirm:$false 6>$null)
+        Mock -ModuleName HelpDeskToolkit Invoke-HDRaccoltaInventario { $g = New-GrezzoCompleto; $g.Smart = $null; $g }
+        [void](Add-PCCensimento -Censimento $script:File -NonChiedere -Confirm:$false 6>$null)
+        @(Get-RigheFoglio (Get-Fogli $script:File) 'Dettagli')[0][8] | Should -BeLike 'Samsung SSD 980*'
     }
 
     It 'non tocca un foglio "Software" che contiene altro' {

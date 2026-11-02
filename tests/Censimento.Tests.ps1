@@ -297,12 +297,12 @@ Describe 'Dal file della scansione all''Excel completato sul PC' {
         $script:FileCensimento = Join-Path $script:CartellaCensimentoTest 'Censimento_Studio-Rossi.xlsx'
     }
 
-    It 'New-Censimento crea l''Excel con le 20 colonne nell''ordine giusto' {
+    It 'New-Censimento crea l''Excel con le 21 colonne nell''ordine giusto' {
         $f = New-Censimento -Cliente 'Prova Colonne'
         $f.Name | Should -Be 'Censimento_Prova-Colonne.xlsx'
         $fogli = @(InModuleScope HelpDeskToolkit -Parameters @{ P = $f.FullName } { param($P) Read-HDXlsx $P })
         $titoli = @($fogli[0].Righe[1].GetEnumerator() | Sort-Object Key | ForEach-Object { $_.Value })
-        $titoli | Should -Be @('Hostname', 'Indirizzo IP', 'Tipo IP', 'MAC Address', 'Device Type', 'Manufacturer', 'Model', 'Nome Utente', 'Utilizzatore', 'Note', 'Dominio', 'Serial Number', 'Operating System', 'Operating System Version', 'Memory', 'Processor Type', 'Free Disk Space %', 'Logical Disk Size', 'Cynet', 'Locazione')
+        $titoli | Should -Be @('Hostname', 'Indirizzo IP', 'Tipo IP', 'MAC Address', 'Device Type', 'Manufacturer', 'Model', 'Nome Utente', 'Utilizzatore', 'Note', 'Dominio', 'Serial Number', 'Operating System', 'Operating System Version', 'Memory', 'Processor Type', 'Free Disk Space %', 'Logical Disk Size', 'Cynet', 'BitLocker', 'Locazione')
         Remove-Item -LiteralPath $f.FullName
     }
 

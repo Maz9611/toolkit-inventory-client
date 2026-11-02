@@ -103,7 +103,7 @@ Invoke-Collaudo 'Dati di questo PC per il censimento' {
     Assert-Vero ([bool]$r.Memory) 'Memoria non letta'
     Assert-Vero ([bool]$r.Processor) 'Processore non letto'
     $script:pc = $r
-    $colonne = 'Hostname', 'IndirizzoIP', 'TipoIP', 'MAC', 'DeviceType', 'Manufacturer', 'Model', 'NomeUtente', 'Dominio', 'SerialNumber', 'OS', 'OSVersion', 'Memory', 'Processor', 'FreeDiskPct', 'DiskSize', 'Cynet'
+    $colonne = 'Hostname', 'IndirizzoIP', 'TipoIP', 'MAC', 'DeviceType', 'Manufacturer', 'Model', 'NomeUtente', 'Dominio', 'SerialNumber', 'OS', 'OSVersion', 'Memory', 'Processor', 'FreeDiskPct', 'DiskSize', 'Cynet', 'BitLocker'
     foreach ($c in $colonne) { '{0,-14} {1}' -f $c, $r.$c }
     'Nome utente da: {0}' -f $r.FonteNomeUtente
     'Cynet: {0}' -f $r.CynetDettaglio
@@ -112,10 +112,11 @@ Invoke-Collaudo 'Dati di questo PC per il censimento' {
     Assert-Vero ($null -ne $r.Dettagli) 'Dati del foglio Dettagli non raccolti'
     ''
     'Foglio Dettagli:'
-    foreach ($k in 'Windows11', 'TPM', 'SecureBoot', 'Avvio', 'DischiFisici', 'BitLocker', 'Bios', 'Monitor', 'Stampanti', 'Office', 'AttivazioneWindows', 'Antivirus', 'AccessoRemoto', 'Programmi') { '{0,-19}{1}' -f $k, $r.Dettagli[$k] }
+    foreach ($k in 'Windows11', 'TPM', 'SecureBoot', 'Avvio', 'DischiFisici', 'Smart', 'Bios', 'Monitor', 'Stampanti', 'Office', 'AttivazioneWindows', 'Antivirus', 'AccessoRemoto', 'Programmi') { '{0,-19}{1}' -f $k, $r.Dettagli[$k] }
     $vuotiDettagli = @('TPM', 'Avvio', 'DischiFisici', 'Bios', 'AttivazioneWindows', 'Programmi' | Where-Object { -not $r.Dettagli[$_] })
     if ($vuotiDettagli.Count -gt 0) { 'Dettagli vuoti (controlla se è normale su questo PC): ' + ($vuotiDettagli -join ', ') }
     'Programmi trovati: {0} (primi 5: {1})' -f @($r.Software).Count, ((@($r.Software) | Select-Object -First 5 | ForEach-Object { $_.Nome }) -join '; ')
+    if (-not $r.Dettagli['Smart']) { 'SMART non letto: è normale da utente normale, rifai la prova come amministratore.' }
 }
 
 $script:excelProva = $null

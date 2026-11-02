@@ -57,13 +57,16 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
 - Colonne in `$script:HDColonneDettagli` e `$script:HDColonneSoftware`; i dati grezzi in più li raccoglie
   `$script:HDRaccoltaCensimento`, `ConvertTo-HDDettagliPC` (pura) li trasforma in testi e il record
   li porta in `Dettagli` (hashtable) e `Software` (elenco, `$null` se non raccolto).
-- Dettagli: una riga per PC (seriale, poi hostname). Software: una riga per programma per PC, mai
-  cancellata: chi sparisce diventa `Presente = No`.
+- Dettagli: una riga per PC (seriale, poi hostname). DatiSoftware (nascosto): una riga per PC con
+  l'elenco dei programmi in una cella (`nome<TAB>versione<TAB>editore` per riga, max 32000 caratteri).
+  Software: una riga per programma (N. PC, "Tutti" / "Tutti tranne ..." / elenco, versioni),
+  riscritto per intero da `Set-HDRigheFoglio` a ogni censimento partendo da DatiSoftware.
+- Colonne nuove negli Excel esistenti: `Aggiungibile` (es. BitLocker nel foglio principale) e
+  quelle mancanti in Dettagli vengono aggiunte in fondo all'intestazione (`Add-HDColonneMancanti`).
 - `Save-HDCensimento -Extra` scrive tutti i fogli in un'unica copia temporanea; `Add-HDFoglioXlsx`
   crea i fogli mancanti negli Excel esistenti (aggiunge anche gli stili). Un foglio con lo stesso
   nome ma altro contenuto (`Conflitto`) non si tocca.
-- Il foglio Software può avere migliaia di righe: `Read-HDXlsx -EscludiFogli Software` quando non
-  serve, niente chiamate di funzione per cella nei cicli di lettura e scrittura.
+- Nei cicli di lettura e scrittura dell'Excel niente chiamate di funzione per cella (fogli grandi).
 
 ## Scansione di rete e finestra
 

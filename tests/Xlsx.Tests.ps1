@@ -114,27 +114,61 @@ Describe 'File salvato da Excel (stringhe condivise, tabella, formule)' {
         $nuovo = InModuleScope HelpDeskToolkit -Parameters @{ P = $script:ComeExcel } {
             param($P)
             $c = Add-HDFoglioXlsx -Percorso $P -NomeFoglio 'Software' -Colonne $script:HDColonneSoftware
-            [void](Update-HDXlsx -Percorso $P -ParteFoglio $c.Parte -IndiceFoglio $c.Indice -Modifiche @(@{ Riga = 2; Celle = @{ 1 = 'PC-01'; 2 = 'Firefox' } }))
+            [void](Update-HDXlsx -Percorso $P -ParteFoglio $c.Parte -IndiceFoglio $c.Indice -Modifiche @(@{ Riga = 2; Celle = @{ 1 = 'Firefox'; 2 = 'Mozilla' } }))
             $c
         }
         $nuovo.Parte | Should -Be 'xl/worksheets/sheet3.xml'
         $nuovo.Indice | Should -Be 2
         $f = @(InModuleScope HelpDeskToolkit -Parameters @{ P = $script:ComeExcel } { param($P) Read-HDXlsx $P })
         ($f | ForEach-Object { $_.Nome }) | Should -Be @('Info', 'Elenco PC', 'Software')
-        $f[2].Righe[1][2] | Should -Be 'Programma'
-        $f[2].Righe[2][2] | Should -Be 'Firefox'
+        $f[2].Righe[1][1] | Should -Be 'Programma'
+        $f[2].Righe[2][1] | Should -Be 'Firefox'
         $f[1].Righe[4][1] | Should -Be 'PC-02'
         Get-VoceZip $script:ComeExcel '[Content_Types].xml' | Should -Match 'PartName="/xl/worksheets/sheet3.xml"'
         $rels = Get-VoceZip $script:ComeExcel 'xl/_rels/workbook.xml.rels'
         ([regex]::Matches($rels, '<Relationship ')).Count | Should -Be 5
         $wb = Get-VoceZip $script:ComeExcel 'xl/workbook.xml'
         $wb | Should -Match 'name="Software" sheetId="3" r:id="rIdHD1"'
-        $wb | Should -Match "_xlnm._FilterDatabase`" localSheetId=`"2`" hidden=`"1`">'Software'!\`$A\`$1:\`$G\`$2"
+        $wb | Should -Match "_xlnm._FilterDatabase`" localSheetId=`"2`" hidden=`"1`">'Software'!\`$A\`$1:\`$E\`$2"
         $stili = Get-VoceZip $script:ComeExcel 'xl/styles.xml'
         $stili | Should -Match '<fonts count="2">'
         $stili | Should -Match '<cellXfs count="5">'
         Get-VoceZip $script:ComeExcel 'xl/worksheets/sheet3.xml' | Should -Match '<c r="A1" s="3" t="inlineStr">'
         { InModuleScope HelpDeskToolkit -Parameters @{ P = $script:ComeExcel } { param($P) Add-HDFoglioXlsx -Percorso $P -NomeFoglio 'Software' -Colonne $script:HDColonneSoftware } } | Should -Throw '*esiste già*'
+    }
+
+    It 'riscrive per intero un foglio generato (intestazione, righe, filtro) e aggiunge fogli nascosti' {
+        InModuleScope HelpDeskToolkit -Parameters @{ P = $script:ComeExcel } {
+            param($P)
+            $c = Add-HDFoglioXlsx -Percorso $P -NomeFoglio 'Riepilogo' -Colonne $script:HDColonneSoftware
+            Set-HDRigheFoglio -Percorso $P -ParteFoglio $c.Parte -IndiceFoglio $c.Indice -Intestazione @('A', 'B') -Righe @(, @('uno', 'due')) 
+            Set-HDRigheFoglio -Percorso $P -ParteFoglio $c.Parte -IndiceFoglio $c.Indice -Intestazione @('Programma', 'PC') -Righe @(@('Chrome', 'Tutti'), @('Zoom', 'PC-1, PC-2'), @('Vuota', ''))
+            [void](Add-HDFoglioXlsx -Percorso $P -NomeFoglio 'Nascosto' -Colonne $script:HDColonneDatiSoftware -Nascosto)
+        }
+        $f = @(InModuleScope HelpDeskToolkit -Parameters @{ P = $script:ComeExcel } { param($P) Read-HDXlsx $P })
+        $r = ($f | Where-Object Nome -eq 'Riepilogo').Righe
+        $r.Count | Should -Be 4
+        $r[1][1] | Should -Be 'Programma'
+        $r[3][2] | Should -Be 'PC-1, PC-2'
+        $r[4].ContainsKey(2) | Should -BeFalse
+        $xml = Get-VoceZip $script:ComeExcel 'xl/worksheets/sheet3.xml'
+        $xml | Should -Match '<autoFilter ref="A1:B4"'
+        $xml | Should -Match '<c r="A1" s="3" t="inlineStr">'
+        Get-VoceZip $script:ComeExcel 'xl/workbook.xml' | Should -Match 'name="Nascosto" sheetId="4" state="hidden"'
+    }
+
+    It 'una colonna aggiunta all''intestazione prende lo stile dei titoli ed entra nel filtro' {
+        $p = Join-Path $TestDrive 'colonna-nuova.xlsx'
+        Remove-Item -LiteralPath $p -ErrorAction SilentlyContinue
+        InModuleScope HelpDeskToolkit -Parameters @{ P = $p } {
+            param($P)
+            New-HDXlsx -Percorso $P -NomeFoglio 'Censimento' -Colonne @($script:HDColonneCensimento | Where-Object { $_.Chiave -ne 'BitLocker' })
+            [void](Update-HDXlsx -Percorso $P -ParteFoglio 'xl/worksheets/sheet1.xml' -IndiceFoglio 0 -Modifiche @(@{ Riga = 1; Celle = @{ 21 = 'BitLocker' } }, @{ Riga = 2; Celle = @{ 1 = 'PC-1'; 21 = 'C: attiva' } }))
+        }
+        $xml = Get-VoceZip $p 'xl/worksheets/sheet1.xml'
+        $xml | Should -Match '<c r="U1" s="1" t="inlineStr">'
+        $xml | Should -Match '<autoFilter ref="A1:U2"'
+        Get-VoceZip $p 'xl/workbook.xml' | Should -Match ([regex]::Escape("'Censimento'!`$A`$1:`$U`$2"))
     }
 
     It 'legge fogli, stringhe condivise e testo formattato a pezzi' {

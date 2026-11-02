@@ -4,8 +4,8 @@
 
 function New-HDColonnaCensimento {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Crea solo un oggetto in memoria')]
-    param([string]$Chiave, [string]$Titolo, [double]$Larghezza, [string[]]$Sinonimi, [switch]$Manuale, [switch]$Numerica)
-    [pscustomobject]@{ Chiave = $Chiave; Titolo = $Titolo; Larghezza = $Larghezza; Sinonimi = $Sinonimi; Manuale = [bool]$Manuale; Numerica = [bool]$Numerica; Testo = (-not $Numerica) }
+    param([string]$Chiave, [string]$Titolo, [double]$Larghezza, [string[]]$Sinonimi, [switch]$Manuale, [switch]$Numerica, [switch]$Aggiungibile)
+    [pscustomobject]@{ Chiave = $Chiave; Titolo = $Titolo; Larghezza = $Larghezza; Sinonimi = $Sinonimi; Manuale = [bool]$Manuale; Numerica = [bool]$Numerica; Testo = (-not $Numerica); Aggiungibile = [bool]$Aggiungibile }
 }
 
 # Colonne nell'ordine dell'Excel. I sinonimi servono a riconoscere anche file con intestazioni diverse.
@@ -29,11 +29,13 @@ $script:HDColonneCensimento = @(
     New-HDColonnaCensimento 'FreeDiskPct' 'Free Disk Space %' 30 @('free disk space', 'spazio libero', 'spazio disco libero', 'free disk', 'disco libero')
     New-HDColonnaCensimento 'DiskSize' 'Logical Disk Size' 24 @('logical disk size', 'dimensione disco', 'disk size', 'capacita disco')
     New-HDColonnaCensimento 'Cynet' 'Cynet' 8 @('cynet')
+    # Colonne arrivate dopo: negli Excel che non le hanno vengono aggiunte in fondo
+    New-HDColonnaCensimento 'BitLocker' 'BitLocker' 20 @('bitlocker', 'crittografia', 'cifratura disco') -Aggiungibile
     New-HDColonnaCensimento 'Locazione' 'Locazione' 22 @('locazione', 'ubicazione', 'posizione', 'ufficio', 'stanza', 'location') -Manuale
 )
 
 # Colonne aggiornate dallo script sul PC (le manuali solo se le scrivi tu quando richiesto)
-$script:HDColonneAutomatiche = @('Hostname', 'DeviceType', 'Manufacturer', 'Model', 'NomeUtente', 'Dominio', 'SerialNumber', 'OS', 'OSVersion', 'Memory', 'Processor', 'FreeDiskPct', 'DiskSize', 'Cynet')
+$script:HDColonneAutomatiche = @('Hostname', 'DeviceType', 'Manufacturer', 'Model', 'NomeUtente', 'Dominio', 'SerialNumber', 'OS', 'OSVersion', 'Memory', 'Processor', 'FreeDiskPct', 'DiskSize', 'Cynet', 'BitLocker')
 
 $script:HDIpv4 = '^\d{1,3}(\.\d{1,3}){3}$'
 $script:HDSchedeVirtuali = '(?i)hyper-v|vmware|virtualbox|virtual|vpn|tap-|tunnel|loopback|bluetooth|wan miniport|npcap|tailscale|zerotier|wireguard|docker|vethernet|fortinet|anyconnect|teredo|isatap|pangp|openvpn'
@@ -369,6 +371,7 @@ function ConvertTo-HDRecordCensimento {
         FreeDiskPct       = $dischi.Libero
         DiskSize          = $dischi.Dimensione
         Cynet             = $cynet.Valore
+        BitLocker         = $extra.BitLocker
         Locazione         = ''
         TuttiMAC          = $tuttiMac
         FonteNomeUtente   = $utente.Fonte
@@ -414,7 +417,11 @@ function ConvertTo-HDTabellaCensimento {
         $intestazione = $null
         foreach ($n in @($f.Righe.Keys | Select-Object -First 15)) {
             $mappa = Find-HDColonneCensimento $f.Righe[$n]
-            if ($mappa.ContainsKey('Hostname') -or $mappa.Count -ge 4) { $intestazione = @{ Riga = $n; Colonne = $mappa }; break }
+            if ($mappa.ContainsKey('Hostname') -or $mappa.Count -ge 4) {
+                $ultimaColonna = (@($f.Righe[$n].Keys) | ForEach-Object { [int]$_ } | Measure-Object -Maximum).Maximum
+                $intestazione = @{ Riga = $n; Colonne = $mappa; UltimaColonna = [int]$ultimaColonna }
+                break
+            }
         }
         if (-not $intestazione) { continue }
         $righe = New-Object System.Collections.Generic.List[object]
@@ -436,7 +443,9 @@ function ConvertTo-HDTabellaCensimento {
             ParteFoglio      = $f.Parte
             RigaIntestazione = [int]$intestazione.Riga
             Colonne          = $intestazione.Colonne
-            Mancanti         = @($script:HDColonneCensimento | Where-Object { -not $intestazione.Colonne.ContainsKey($_.Chiave) } | ForEach-Object { $_.Titolo })
+            Mancanti         = @($script:HDColonneCensimento | Where-Object { -not $_.Aggiungibile -and -not $intestazione.Colonne.ContainsKey($_.Chiave) } | ForEach-Object { $_.Titolo })
+            DaAggiungere     = @($script:HDColonneCensimento | Where-Object { $_.Aggiungibile -and -not $intestazione.Colonne.ContainsKey($_.Chiave) })
+            UltimaColonna    = $intestazione.UltimaColonna
             Righe            = $righe
             UltimaRiga       = [int]$ultima
         }

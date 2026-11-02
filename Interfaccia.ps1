@@ -148,7 +148,7 @@ function Show-DatiPc {
             @('Manufacturer', $r.Manufacturer), @('Model', $r.Model), @('Nome Utente', ('{0} ({1})' -f $r.NomeUtente, $r.FonteNomeUtente)),
             @('Dominio', $r.Dominio), @('Serial Number', $seriale), @('Operating System', $r.OS), @('Operating System Version', $r.OSVersion),
             @('Memory', $r.Memory), @('Processor Type', $r.Processor), @('Free Disk Space %', $r.FreeDiskPct), @('Logical Disk Size', $r.DiskSize),
-            @('Cynet', $cynet)
+            @('Cynet', $cynet), @('BitLocker', $r.BitLocker)
         )
         foreach ($v in $voci) { [void]$script:GrigliaPc.Rows.Add([string]$v[0], [string]$v[1]) }
         # Dati del foglio Dettagli (Windows 11, dischi, monitor, software...)
@@ -200,6 +200,7 @@ function Save-DatiPc {
         if ($e.Azione -eq 'Aggiunto') { $testo = 'Fatto: {0} aggiunto alla riga {1}.' -f $e.Hostname, $e.Riga }
         else { $testo = 'Fatto: riga {0} aggiornata ({1}).' -f $e.Riga, $e.Motivo }
         if ($script:Record.Dettagli) { $testo += ' Dettagli e programmi sono nei fogli "Dettagli" e "Software".' }
+        if ($script:Record.Dettagli -and -not $script:Record.Dettagli['Smart']) { $testo += ' Per leggere lo SMART dei dischi avvia il programma come amministratore.' }
         $script:Stato.Text = $testo
         $script:EtichettaRiga.Text = $testo
         Show-Info $testo

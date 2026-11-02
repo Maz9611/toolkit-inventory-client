@@ -362,6 +362,11 @@ function Update-HDXlsx {
                         $vicina = $righe[$sopra].SelectSingleNode("x:c[@r='$((ConvertTo-HDLettereColonna $colonna) + $sopra)']", $nsm)
                         if ($vicina) { $stile = $vicina.GetAttribute('s'); break }
                     }
+                    if (-not $stile -and $n -eq $RigaIntestazione) {
+                        # colonna nuova nell'intestazione: stesso stile della prima intestazione
+                        $prima = $row.SelectSingleNode('x:c[1]', $nsm)
+                        if ($prima) { $stile = $prima.GetAttribute('s') }
+                    }
                     if (-not $stile -and $stiliColonne.ContainsKey($colonna)) { $stile = $stiliColonne[$colonna] }
                     if ($stile) { $cella.SetAttribute('s', $stile) }
                     if ($dopo) { [void]$row.InsertBefore($cella, $dopo) } else { [void]$row.AppendChild($cella) }
@@ -405,6 +410,26 @@ function Update-HDXlsx {
         }
         $dimensione = $doc.SelectSingleNode('/x:worksheet/x:dimension', $nsm)
         if ($dimensione -and $maxRiga -gt 0) { $dimensione.SetAttribute('ref', ('A1:{0}{1}' -f (ConvertTo-HDLettereColonna $maxColonna), $maxRiga)) }
+
+        # Colonne aggiunte in fondo all'intestazione: il filtro automatico le comprende
+        $filtroColonne = $doc.SelectSingleNode('/x:worksheet/x:autoFilter', $nsm)
+        $rigaTitoli = $righe[$RigaIntestazione]
+        if ($filtroColonne -and $rigaTitoli -and $filtroColonne.GetAttribute('ref') -match '^([A-Za-z]+)(\d+):([A-Za-z]+)(\d+)$' -and [int]$Matches[2] -eq $RigaIntestazione) {
+            $finePrima = (ConvertFrom-HDRiferimento ($Matches[3] + '1')).Colonna
+            $ultimaTitolo = ConvertFrom-HDRiferimento $rigaTitoli.SelectSingleNode('x:c[last()]', $nsm).GetAttribute('r')
+            if ($ultimaTitolo -and $ultimaTitolo.Colonna -gt $finePrima) {
+                $lettera = ConvertTo-HDLettereColonna $ultimaTitolo.Colonna
+                $filtroColonne.SetAttribute('ref', ('{0}{1}:{2}{3}' -f $Matches[1], $Matches[2], $lettera, $Matches[4]))
+                $infoWb = Get-HDInfoWorkbook -Zip $zip
+                $wbColonne = Read-HDXml -Zip $zip -Nome $infoWb.ParteWorkbook
+                $nsmWbColonne = New-HDNsm $wbColonne
+                $nomeFiltro = $wbColonne.SelectSingleNode("/x:workbook/x:definedNames/x:definedName[@name='_xlnm._FilterDatabase' and @localSheetId='$IndiceFoglio']", $nsmWbColonne)
+                if ($nomeFiltro -and $nomeFiltro.InnerText -match ':\$[A-Z]+\$(\d+)$') {
+                    $nomeFiltro.InnerText = $nomeFiltro.InnerText -replace ':\$[A-Z]+\$(\d+)$', (':$$' + $lettera + '$$$1')
+                    Write-HDVoceZip -Zip $zip -Nome $infoWb.ParteWorkbook -Testo $wbColonne.OuterXml
+                }
+            }
+        }
 
         if ($primaNuova -ne [int]::MaxValue) {
             $filtro = $doc.SelectSingleNode('/x:worksheet/x:autoFilter', $nsm)
@@ -481,6 +506,83 @@ function Get-HDXmlFoglioNuovo {
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' + ('<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><dimension ref="A1:{0}1"/><sheetViews><sheetView{5} workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>{1}</cols><sheetData><row r="1" ht="32" customHeight="1">{2}</row></sheetData><autoFilter ref="A1:{0}1"/>{3}{4}<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="landscape" fitToHeight="0"/></worksheet>' -f $ultima, (@($cols) -join ''), (@($celle) -join ''), (@($condizionali) -join ''), $blocchiConvalide, $scheda)
 }
 
+function Set-HDRigheFoglio {
+    <#
+    Riscrive tutto il contenuto di un foglio generato dal toolkit (intestazione + righe di testo).
+    Mantiene colonne, stili delle colonne e impostazioni del foglio; aggiorna dimensione e filtro.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Funzione interna su una copia temporanea')]
+    param([Parameter(Mandatory)][string]$Percorso, [Parameter(Mandatory)][string]$ParteFoglio, [int]$IndiceFoglio, [Parameter(Mandatory)][string[]]$Intestazione, [object[]]$Righe = @(), [int[]]$ColonneNumeriche = @())
+    $zip = Open-HDZip -Percorso (Resolve-HDPercorso $Percorso) -Scrittura
+    try {
+        $doc = Read-HDXml -Zip $zip -Nome $ParteFoglio
+        if (-not $doc) { throw "Foglio $ParteFoglio non trovato nel file." }
+        $nsm = New-HDNsm $doc
+        $sheetData = $doc.SelectSingleNode('/x:worksheet/x:sheetData', $nsm)
+        $stileTitoli = ''
+        $primaTitoli = $sheetData.SelectSingleNode('x:row[1]/x:c[1]', $nsm)
+        if ($primaTitoli) { $stileTitoli = $primaTitoli.GetAttribute('s') }
+        $altezza = $sheetData.SelectSingleNode('x:row[1]', $nsm)
+        while ($sheetData.HasChildNodes) { [void]$sheetData.RemoveChild($sheetData.FirstChild) }
+        $tutte = @(, [object[]]$Intestazione) + @($Righe)
+        $numero = 0
+        $maxColonna = $Intestazione.Count
+        foreach ($valori in $tutte) {
+            $numero++
+            $row = New-HDElementoXml $doc 'row'
+            $row.SetAttribute('r', [string]$numero)
+            if ($numero -eq 1 -and $altezza -and $altezza.GetAttribute('ht')) {
+                $row.SetAttribute('ht', $altezza.GetAttribute('ht'))
+                $row.SetAttribute('customHeight', '1')
+            }
+            $valori = @($valori)
+            if ($valori.Count -gt $maxColonna) { $maxColonna = $valori.Count }
+            for ($i = 0; $i -lt $valori.Count; $i++) {
+                $testo = (ConvertTo-HDTestoXmlSicuro ([string]$valori[$i])).Trim()
+                if (-not $testo) { continue }
+                $c = New-HDElementoXml $doc 'c'
+                $c.SetAttribute('r', (ConvertTo-HDLettereColonna ($i + 1)) + $numero)
+                if ($numero -eq 1 -and $stileTitoli) { $c.SetAttribute('s', $stileTitoli) }
+                $valoreNumero = 0.0
+                if ($numero -gt 1 -and $ColonneNumeriche -contains ($i + 1) -and [double]::TryParse($testo, [System.Globalization.NumberStyles]::Float, $script:HDInvariante, [ref]$valoreNumero)) {
+                    $v = New-HDElementoXml $doc 'v'
+                    $v.InnerText = $valoreNumero.ToString('R', $script:HDInvariante)
+                    [void]$c.AppendChild($v)
+                }
+                else {
+                    $c.SetAttribute('t', 'inlineStr')
+                    $is = New-HDElementoXml $doc 'is'
+                    $t = New-HDElementoXml $doc 't'
+                    $t.InnerText = $testo
+                    [void]$is.AppendChild($t)
+                    [void]$c.AppendChild($is)
+                }
+                [void]$row.AppendChild($c)
+            }
+            [void]$sheetData.AppendChild($row)
+        }
+        $area = 'A1:{0}{1}' -f (ConvertTo-HDLettereColonna $maxColonna), $numero
+        $dimensione = $doc.SelectSingleNode('/x:worksheet/x:dimension', $nsm)
+        if ($dimensione) { $dimensione.SetAttribute('ref', $area) }
+        $filtro = $doc.SelectSingleNode('/x:worksheet/x:autoFilter', $nsm)
+        if ($filtro) {
+            $filtro.SetAttribute('ref', $area)
+            while ($filtro.HasChildNodes) { [void]$filtro.RemoveChild($filtro.FirstChild) }
+            $info = Get-HDInfoWorkbook -Zip $zip
+            $wb = Read-HDXml -Zip $zip -Nome $info.ParteWorkbook
+            $nsmWb = New-HDNsm $wb
+            $nome = $wb.SelectSingleNode("/x:workbook/x:definedNames/x:definedName[@name='_xlnm._FilterDatabase' and @localSheetId='$IndiceFoglio']", $nsmWb)
+            if ($nome) {
+                $foglioNome = $nome.InnerText.Substring(0, $nome.InnerText.LastIndexOf('!') + 1)
+                $nome.InnerText = $foglioNome + ('$A$1:${0}${1}' -f (ConvertTo-HDLettereColonna $maxColonna), $numero)
+                Write-HDVoceZip -Zip $zip -Nome $info.ParteWorkbook -Testo $wb.OuterXml
+            }
+        }
+        Write-HDVoceZip -Zip $zip -Nome $ParteFoglio -Testo $doc.OuterXml
+    }
+    finally { $zip.Dispose() }
+}
+
 function Get-HDNomeFoglioFormula {
     # Nome del foglio come si scrive in una formula: 'Censimento'
     param([string]$Nome)
@@ -512,7 +614,7 @@ function New-HDXlsx {
     $fogli = @([pscustomobject]@{ Nome = $NomeFoglio; Colonne = $Colonne; Evidenzia = $Evidenzia }) + @($AltriFogli | ForEach-Object {
             $ev = @{}
             if ($_.Evidenzia) { $ev = $_.Evidenzia }
-            [pscustomobject]@{ Nome = [string]$_.Nome; Colonne = @($_.Colonne); Evidenzia = $ev }
+            [pscustomobject]@{ Nome = [string]$_.Nome; Colonne = @($_.Colonne); Evidenzia = $ev; Nascosto = [bool]$_.Nascosto }
         })
     $overrides = ''
     $relazioni = ''
@@ -524,7 +626,9 @@ function New-HDXlsx {
         $f = $fogli[$i]
         $overrides += '<Override PartName="/xl/worksheets/sheet{0}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' -f $n
         $relazioni += '<Relationship Id="rId{0}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{0}.xml"/>' -f $n
-        $elencoFogli += '<sheet name="{0}" sheetId="{1}" r:id="rId{1}"/>' -f (& $esc $f.Nome), $n
+        $stato = ''
+        if ($f.Nascosto) { $stato = ' state="hidden"' }
+        $elencoFogli += '<sheet name="{0}" sheetId="{1}"{2} r:id="rId{1}"/>' -f (& $esc $f.Nome), $n, $stato
         $formula = & $esc (Get-HDNomeFoglioFormula $f.Nome)
         $nomi += '<definedName name="_xlnm._FilterDatabase" localSheetId="{0}" hidden="1">{1}!$A$1:${2}$1</definedName><definedName name="_xlnm.Print_Titles" localSheetId="{0}">{1}!$1:$1</definedName>' -f $i, $formula, (ConvertTo-HDLettereColonna $f.Colonne.Count)
         if ($i -eq 0) { $xmlFogli["xl/worksheets/sheet$n.xml"] = Get-HDXmlFoglioNuovo -Colonne $f.Colonne -Elenchi $Elenchi -Evidenzia $Evidenzia -RigheRegole $RigheRegole -Selezionato }
@@ -590,7 +694,7 @@ function Add-HDFoglioXlsx {
     Non tocca gli altri fogli. Restituisce Parte e Indice del foglio creato.
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Funzione interna: si usa su una copia temporanea')]
-    param([Parameter(Mandatory)][string]$Percorso, [Parameter(Mandatory)][string]$NomeFoglio, [Parameter(Mandatory)][object[]]$Colonne)
+    param([Parameter(Mandatory)][string]$Percorso, [Parameter(Mandatory)][string]$NomeFoglio, [Parameter(Mandatory)][object[]]$Colonne, [switch]$Nascosto)
     $zip = Open-HDZip -Percorso (Resolve-HDPercorso $Percorso) -Scrittura
     try {
         $info = Get-HDInfoWorkbook -Zip $zip
@@ -628,6 +732,7 @@ function Add-HDFoglioXlsx {
         $nuovo = New-HDElementoXml $wb 'sheet'
         $nuovo.SetAttribute('name', $NomeFoglio)
         $nuovo.SetAttribute('sheetId', [string]($idMax + 1))
+        if ($Nascosto) { $nuovo.SetAttribute('state', 'hidden') }
         $prefisso = $wb.DocumentElement.GetPrefixOfNamespace($script:HDNsRel)
         if (-not $prefisso) {
             $prefisso = 'r'
