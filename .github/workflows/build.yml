@@ -2,15 +2,18 @@
 # Gira su Windows con Windows PowerShell 5.1, come sui PC dei clienti.
 name: Build
 
+# Per pubblicare una versione: crea una Release su GitHub (tag v2.3.0, ecc.):
+# questa build parte da sola e allega ToolkitHelpDesk.zip e helpdesk-toolkit.zip.
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
-  contents: write   # serve solo per pubblicare la release sui tag v*
+  contents: write   # serve solo per allegare i pacchetti alla release
 
 jobs:
   build:
@@ -97,10 +100,9 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
-      - name: Pubblica la release (solo per i tag v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Allega i pacchetti alla release
+        if: github.event_name == 'release'
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create $env:GITHUB_REF_NAME dist\ToolkitHelpDesk.zip dist\helpdesk-toolkit.zip --title "Toolkit Help Desk $env:GITHUB_REF_NAME" --notes "ToolkitHelpDesk.zip: il programma (un solo file). helpdesk-toolkit.zip: pacchetto completo con prova e sorgente."
+        run: gh release upload $env:GITHUB_REF_NAME dist\ToolkitHelpDesk.zip dist\helpdesk-toolkit.zip --clobber --repo $env:GITHUB_REPOSITORY
