@@ -51,7 +51,7 @@ jobs:
 
       - name: Carica l'exe da firmare
         id: da-firmare
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ToolkitHelpDesk-non-firmato
           path: ToolkitHelpDesk.exe
@@ -91,7 +91,7 @@ jobs:
           Compress-Archive -Path $completo -DestinationPath .\dist\helpdesk-toolkit.zip
 
       - name: Carica i pacchetti
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: pacchetti
           path: dist/*.zip
