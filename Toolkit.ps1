@@ -15,11 +15,10 @@ $modulo = Get-Module HelpDeskToolkit
 function Show-Titolo {
     Clear-Host
     $admin = & $modulo { Test-HDAmministratore }
-    $cfg = & $modulo { Get-HDConfig }
     Write-Host ''
     Write-Host '  ================================================' -ForegroundColor DarkCyan
     Write-Host '     TOOLKIT HELP DESK' -ForegroundColor Cyan
-    Write-Host ('     {0}  -  PC: {1}' -f $cfg.Azienda, (& $modulo { Get-HDNomePC })) -ForegroundColor DarkCyan
+    Write-Host ('     PC: {0}' -f (& $modulo { Get-HDNomePC })) -ForegroundColor DarkCyan
     Write-Host '  ================================================' -ForegroundColor DarkCyan
     if ($admin) { Write-Host '     Avviato come amministratore' -ForegroundColor Green }
     else { Write-Host '     Utente normale: alcuni controlli sono limitati (opzione A)' -ForegroundColor DarkYellow }

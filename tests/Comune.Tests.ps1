@@ -81,17 +81,18 @@ Describe 'Lettura dei file di testo in qualsiasi codifica' {
 Describe 'Configurazione e cartelle' {
     It 'unisce config.psd1 ai valori predefiniti' {
         $cfg = InModuleScope HelpDeskToolkit { Get-HDConfig }
-        $cfg.Azienda | Should -Be 'Azienda Test'
-        $cfg.Tecnico | Should -Be 'Tecnico Test'
+        $cfg.CartellaReport | Should -Be $script:CartellaReportTest
         $cfg.Soglie.UptimeGiorni | Should -Be 14
+        $cfg.ContainsKey('Azienda') | Should -BeFalse
         $cfg.Censimento.RilevaCynet | Should -Be 'Cynet'
     }
 
     It 'con un config.psd1 rovinato avvisa e usa i predefiniti' {
         $p = Join-Path $TestDrive 'rotto.psd1'
-        Set-Content -LiteralPath $p -Value '@{ Azienda = ' -Encoding UTF8
+        Set-Content -LiteralPath $p -Value '@{ CartellaReport = ' -Encoding UTF8
         $cfg = InModuleScope HelpDeskToolkit -Parameters @{ P = $p } { param($P) Get-HDConfig -Percorso $P -WarningAction SilentlyContinue }
-        $cfg.Azienda | Should -Be 'La tua azienda'
+        $cfg.CartellaReport | Should -Be ''
+        $cfg.Soglie.DiscoCriticoPct | Should -Be 5
     }
 
     It 'Get-HDCartella crea la cartella indicata in config' {

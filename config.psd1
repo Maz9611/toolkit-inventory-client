@@ -2,9 +2,6 @@
 # Non devi modificare niente: il toolkit funziona già così.
 # Cambia un valore solo se vuoi un comportamento diverso, poi salva (Blocco note va bene).
 @{
-    # Nome stampato in testa ai report della "Verifica postazione" (non serve al censimento)
-    Azienda        = 'La tua azienda'
-
     # Dove salvare i report della verifica (vuoto = cartella Report del toolkit)
     CartellaReport = ''
 

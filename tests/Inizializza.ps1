@@ -8,8 +8,6 @@ $script:CartellaCensimentoTest = Join-Path $TestDrive 'Censimento'
 $percorsoConfig = Join-Path $TestDrive 'config-test.psd1'
 $testoConfig = @"
 @{
-    Azienda        = 'Azienda Test'
-    Tecnico        = 'Tecnico Test'
     CartellaReport = '$($script:CartellaReportTest.Replace("'", "''"))'
     Censimento     = @{ Cartella = '$($script:CartellaCensimentoTest.Replace("'", "''"))' }
 }

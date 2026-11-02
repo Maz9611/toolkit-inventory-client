@@ -32,7 +32,7 @@ $cartellaProva = Join-Path (Join-Path ([System.IO.Path]::GetTempPath()) 'HelpDes
 # Configurazione di prova: tutto quello che il toolkit scrive va nella cartella temporanea
 $configProva = Join-Path $cartellaProva 'config-prova.psd1'
 $q = { param($s) $s.Replace("'", "''") }
-$testoConfig = "@{{`r`n    Azienda = 'PROVA TOOLKIT'`r`n    CartellaReport = '{0}'`r`n    Censimento = @{{ Cartella = '{1}' }}`r`n}}`r`n" -f (& $q (Join-Path $cartellaProva 'Report')), (& $q (Join-Path $cartellaProva 'Censimento'))
+$testoConfig = "@{{`r`n    CartellaReport = '{0}'`r`n    Censimento = @{{ Cartella = '{1}' }}`r`n}}`r`n" -f (& $q (Join-Path $cartellaProva 'Report')), (& $q (Join-Path $cartellaProva 'Censimento'))
 [System.IO.File]::WriteAllText($configProva, $testoConfig, (New-Object System.Text.UTF8Encoding($true)))
 $configPrecedente = $env:HELPDESK_TOOLKIT_CONFIG
 $env:HELPDESK_TOOLKIT_CONFIG = $configProva
