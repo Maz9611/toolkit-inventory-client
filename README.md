@@ -146,11 +146,15 @@ volta che arriva una versione nuova, prima di portarla dai clienti.
 Se qualcosa non va: il log della prova e gli errori della finestra
 (`%TEMP%\HelpDeskToolkit-errori.txt`) sono quello che serve per correggere.
 
-## Ricreare l'exe
+## Ricreare l'exe (solo se modifichi il codice)
 
-Dopo una modifica al modulo o alla finestra: doppio clic su **`Crea-Exe.cmd`**. Usa il compilatore
-C# che c'è in ogni Windows: non scarica né installa niente. Crea `ToolkitHelpDesk.exe` nella cartella
-del toolkit. Poi rifai la prova.
+Per usare il toolkit non serve: ogni versione nelle [Releases](../../releases) ha l'exe già pronto,
+creato da GitHub Actions a partire da questo repository.
+
+L'exe contiene una copia degli script: se modifichi a mano un file `.ps1`, l'exe che hai resta
+quello vecchio. In quel caso doppio clic su **`Crea-Exe.cmd`**: usa il compilatore C# che c'è in ogni
+Windows (non scarica né installa niente) e crea `ToolkitHelpDesk.exe` nella cartella del toolkit.
+Poi rifai la prova. Un exe creato così non è firmato.
 
 ## Da riga di comando
 
