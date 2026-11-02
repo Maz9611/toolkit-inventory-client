@@ -117,6 +117,10 @@ Invoke-Collaudo 'Dati di questo PC per il censimento' {
     if ($vuotiDettagli.Count -gt 0) { 'Dettagli vuoti (controlla se è normale su questo PC): ' + ($vuotiDettagli -join ', ') }
     'Programmi trovati: {0} (primi 5: {1})' -f @($r.Software).Count, ((@($r.Software) | Select-Object -First 5 | ForEach-Object { $_.Nome }) -join '; ')
     if (-not $r.Dettagli['Smart']) { 'SMART non letto: è normale da utente normale, rifai la prova come amministratore.' }
+    if ($r.TempiRaccolta) {
+        $t = $r.TempiRaccolta
+        'Tempo di lettura: {0:N1} s in tutto (in parallelo: licenza {1:N1} s, programmi {2:N1} s, dischi {3:N1} s; il resto {4:N1} s)' -f ($t.Totale / 1000), ($t.Licenza / 1000), ($t.Programmi / 1000), ($t.Dischi / 1000), ($t.Principale / 1000)
+    }
 }
 
 $script:excelProva = $null

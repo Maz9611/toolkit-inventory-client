@@ -39,7 +39,9 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
 - Colonne in `$script:HDColonneCensimento` (Private/CensimentoDati.ps1): ordine, titoli, sinonimi,
   colonne manuali (Utilizzatore, Note, Locazione). Nessuna colonna è numerica: Free Disk Space % e
   Logical Disk Size sono testo per disco, es. `(C:) 120 GB 25% (D:) 353 GB 53%`.
-- La raccolta sul PC (`$script:HDRaccoltaCensimento`) è autonoma (gira anche via Invoke-Command); la
+- La raccolta sul PC (`$script:HDRaccoltaCensimento`) è autonoma (gira anche via Invoke-Command): le
+  letture lente (`$lente`: licenza, programmi, dischi/SMART) girano in parallelo in un RunspacePool,
+  ognuna con testo autonomo, e i tempi finiscono in `Tempi` (record: `TempiRaccolta`); la
   conversione `ConvertTo-HDRecordCensimento` è pura e testata. Nei test si sostituisce
   `Invoke-HDRaccoltaInventario` con `Mock -ModuleName HelpDeskToolkit`.
 - Abbinamento (`Find-HDRigaCensimento`): MAC (scartato se seriale o hostname lo contraddicono:
@@ -79,6 +81,7 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
   chiamate di rete vere (`Invoke-HDPingParallelo`, `Get-HDViciniArp`, `Resolve-HDNetbiosRemoto`,
   `Resolve-HDNomeDnsInverso`), che nei test si sostituiscono con Mock.
 - `Interfaccia.ps1` (Windows Forms) è solo un guscio sopra i comandi del modulo: niente logica lì.
+  Misure in pixel sempre con `Get-Px` / `New-Margini` (scala DPI: l'exe chiama `SetProcessDPIAware`).
   `-Verifica` costruisce la finestra e si chiude (usato da `Prova-Toolkit.ps1`). Gli errori vanno in
   `%TEMP%\HelpDeskToolkit-errori.txt`.
 

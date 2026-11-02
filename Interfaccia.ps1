@@ -34,6 +34,29 @@ catch {
 
 #region Aiuti per costruire la finestra
 
+# Scala dello schermo (100% = 1, 150% = 1.5): le misure in pixel si adattano, i caratteri lo fanno da soli.
+# Vale quando il processo è "consapevole dei DPI" (ToolkitHelpDesk.exe lo è); altrimenti resta 1.
+$script:Scala = 1.0
+try {
+    $grafica = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
+    if ($grafica.DpiX -gt 0) { $script:Scala = $grafica.DpiX / 96.0 }
+    $grafica.Dispose()
+}
+catch { $script:Scala = 1.0 }
+
+function Get-Px {
+    # Pixel "a 100%" -> pixel sullo schermo
+    param([double]$Valore)
+    [int][math]::Round($Valore * $script:Scala)
+}
+
+function New-Margini {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Crea solo un oggetto della finestra')]
+    param([double]$Sinistra, [double]$Sopra = -1, [double]$Destra = -1, [double]$Sotto = -1)
+    if ($Sopra -lt 0) { $Sopra = $Sinistra; $Destra = $Sinistra; $Sotto = $Sinistra }
+    New-Object System.Windows.Forms.Padding((Get-Px $Sinistra), (Get-Px $Sopra), (Get-Px $Destra), (Get-Px $Sotto))
+}
+
 function Show-Errore {
     param([string]$Messaggio)
     try { Add-Content -LiteralPath $script:FileErrori -Value ('{0}  {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Messaggio) } catch { Write-Verbose 'Log errori non scrivibile' }
@@ -51,7 +74,7 @@ function New-Etichetta {
     $l = New-Object System.Windows.Forms.Label
     $l.Text = $Testo
     $l.AutoSize = $true
-    $l.Margin = New-Object System.Windows.Forms.Padding(3, 8, 3, 2)
+    $l.Margin = New-Margini 3 8 3 2
     if ($Grassetto) { $l.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 10) }
     $l
 }
@@ -61,16 +84,16 @@ function New-Pulsante {
     $b = New-Object System.Windows.Forms.Button
     $b.Text = $Testo
     $b.AutoSize = $true
-    $b.Padding = New-Object System.Windows.Forms.Padding(8, 3, 8, 3)
-    if ($Larghezza -gt 0) { $b.AutoSize = $false; $b.Width = $Larghezza; $b.Height = 34 }
+    $b.Padding = New-Margini 8 3 8 3
+    if ($Larghezza -gt 0) { $b.AutoSize = $false; $b.Width = Get-Px $Larghezza; $b.Height = Get-Px 34 }
     $b
 }
 
 function New-Casella {
     param([int]$Larghezza = 340, [switch]$Multilinea)
     $t = New-Object System.Windows.Forms.TextBox
-    $t.Width = $Larghezza
-    if ($Multilinea) { $t.Multiline = $true; $t.Height = 90; $t.ScrollBars = 'Vertical' }
+    $t.Width = Get-Px $Larghezza
+    if ($Multilinea) { $t.Multiline = $true; $t.Height = Get-Px 90; $t.ScrollBars = 'Vertical' }
     $t
 }
 
@@ -178,7 +201,9 @@ function Show-DatiPc {
         $script:CasellaNote.Text = [string]$attuali['Note']
         $script:CasellaNomeUtente.Text = $r.NomeUtente
         if ($attuali['NomeUtente']) { $script:CasellaNomeUtente.Text = [string]$attuali['NomeUtente'] }
-        $script:Stato.Text = 'Dati del PC letti. Completa i campi a destra e premi "Salva nell''Excel".'
+        $secondi = ''
+        if ($r.TempiRaccolta -and $r.TempiRaccolta.Totale) { $secondi = ' (in {0:N1} secondi)' -f ($r.TempiRaccolta.Totale / 1000) }
+        $script:Stato.Text = 'Dati del PC letti{0}. Completa i campi a destra e premi "Salva nell''Excel".' -f $secondi
     }
     catch { Show-Errore $_.Exception.Message }
     finally { Set-Occupato $false }
@@ -337,8 +362,10 @@ try {
     [System.Windows.Forms.Application]::EnableVisualStyles()
     $finestra = New-Object System.Windows.Forms.Form
     $finestra.Text = 'Toolkit Help Desk'
-    $finestra.Size = New-Object System.Drawing.Size(1100, 740)
-    $finestra.MinimumSize = New-Object System.Drawing.Size(900, 600)
+    # dimensione adattata alla scala, ma mai più grande dello schermo
+    $schermo = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    $finestra.Size = New-Object System.Drawing.Size([math]::Min((Get-Px 1100), $schermo.Width), [math]::Min((Get-Px 740), $schermo.Height))
+    $finestra.MinimumSize = New-Object System.Drawing.Size([math]::Min((Get-Px 900), $schermo.Width), [math]::Min((Get-Px 600), $schermo.Height))
     $finestra.StartPosition = 'CenterScreen'
     $finestra.Font = New-Object System.Drawing.Font('Segoe UI', 10)
     $exe = Get-Variable -Name HDPercorsoExe -ValueOnly -ErrorAction SilentlyContinue
@@ -350,8 +377,8 @@ try {
     # Barra in alto: quale Excel di censimento
     $alto = New-Object System.Windows.Forms.TableLayoutPanel
     $alto.Dock = 'Top'
-    $alto.Height = 52
-    $alto.Padding = New-Object System.Windows.Forms.Padding(8, 8, 8, 4)
+    $alto.Height = Get-Px 52
+    $alto.Padding = New-Margini 8 8 8 4
     $alto.ColumnCount = 5
     [void]$alto.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
     [void]$alto.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
@@ -370,12 +397,12 @@ try {
 
     $schede = New-Object System.Windows.Forms.TabControl
     $schede.Dock = 'Fill'
-    $schede.Padding = New-Object System.Drawing.Point(14, 6)
+    $schede.Padding = New-Object System.Drawing.Point((Get-Px 14), (Get-Px 6))
 
     # Scheda 1: censisci questo PC
     $schedaPc = New-Object System.Windows.Forms.TabPage
     $schedaPc.Text = 'Censisci questo PC'
-    $schedaPc.Padding = New-Object System.Windows.Forms.Padding(8)
+    $schedaPc.Padding = New-Margini 8
     $grigliaPcContenitore = New-Object System.Windows.Forms.TableLayoutPanel
     $grigliaPcContenitore.Dock = 'Fill'
     $grigliaPcContenitore.ColumnCount = 2
@@ -387,9 +414,9 @@ try {
     $destra.FlowDirection = 'TopDown'
     $destra.WrapContents = $false
     $destra.AutoScroll = $true
-    $destra.Padding = New-Object System.Windows.Forms.Padding(12, 0, 0, 0)
+    $destra.Padding = New-Margini 12 0 0 0
     $script:EtichettaRiga = New-Etichetta 'Premi "Leggi i dati del PC".' -Grassetto
-    $script:EtichettaRiga.MaximumSize = New-Object System.Drawing.Size(360, 0)
+    $script:EtichettaRiga.MaximumSize = New-Object System.Drawing.Size((Get-Px 360), 0)
     $script:CasellaUtilizzatore = New-Casella
     $script:CasellaLocazione = New-Casella
     $script:CasellaNote = New-Casella -Multilinea
@@ -398,7 +425,7 @@ try {
     $pulsanteSalva = New-Pulsante 'Salva nell''Excel' 340
     $pulsanteSalva.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 10)
     $aiuto = New-Etichetta 'Lascia vuoto un campo per non cambiarlo. Per cancellare un valore fallo direttamente nell''Excel.'
-    $aiuto.MaximumSize = New-Object System.Drawing.Size(340, 0)
+    $aiuto.MaximumSize = New-Object System.Drawing.Size((Get-Px 340), 0)
     $aiuto.ForeColor = [System.Drawing.SystemColors]::GrayText
     foreach ($c in @($script:EtichettaRiga, (New-Etichetta 'Utilizzatore'), $script:CasellaUtilizzatore, (New-Etichetta 'Locazione'), $script:CasellaLocazione,
             (New-Etichetta 'Note'), $script:CasellaNote, (New-Etichetta 'Nome Utente (correggi se non è giusto)'), $script:CasellaNomeUtente,
@@ -410,7 +437,7 @@ try {
     # Scheda 2: scansione della rete
     $schedaRete = New-Object System.Windows.Forms.TabPage
     $schedaRete.Text = 'Scansione della rete'
-    $schedaRete.Padding = New-Object System.Windows.Forms.Padding(8)
+    $schedaRete.Padding = New-Margini 8
     $layoutRete = New-Object System.Windows.Forms.TableLayoutPanel
     $layoutRete.Dock = 'Fill'
     $layoutRete.RowCount = 3
@@ -437,7 +464,7 @@ try {
     # Scheda 3: verifiche
     $schedaVerifiche = New-Object System.Windows.Forms.TabPage
     $schedaVerifiche.Text = 'Verifica postazione e dischi'
-    $schedaVerifiche.Padding = New-Object System.Windows.Forms.Padding(8)
+    $schedaVerifiche.Padding = New-Margini 8
     $layoutVerifiche = New-Object System.Windows.Forms.TableLayoutPanel
     $layoutVerifiche.Dock = 'Fill'
     $layoutVerifiche.RowCount = 2

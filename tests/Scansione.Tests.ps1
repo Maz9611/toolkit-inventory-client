@@ -226,6 +226,15 @@ Describe 'ARP e NetBIOS' {
 }
 
 Describe 'Produttore dal MAC e nomi mDNS' {
+    It 'scarta i nomi segnaposto come "(none)"' {
+        InModuleScope HelpDeskToolkit {
+            Test-HDNomeValido '(none)-2' | Should -BeFalse
+            Test-HDNomeValido 'localhost' | Should -BeFalse
+            Test-HDNomeValido '' | Should -BeFalse
+            Test-HDNomeValido 'GT-AX11000_Pro' | Should -BeTrue
+        }
+    }
+
     It 'riconosce il produttore dall''elenco IEEE e i MAC casuali dei telefoni' {
         InModuleScope HelpDeskToolkit {
             Get-HDProduttoreMac 'EC:71:DB:AE:F6:2F' | Should -Be 'Reolink Innovation Limited'

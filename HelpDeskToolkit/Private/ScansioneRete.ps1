@@ -329,7 +329,7 @@ function Get-HDReteLocale {
 
 function Invoke-HDPingParallelo {
     # Ping a blocchi di indirizzi in parallelo; restituisce l'elenco di quelli che rispondono
-    param([Parameter(Mandatory)][string[]]$Indirizzi, [int]$TimeoutMs = 800, [int]$Blocco = 128, [scriptblock]$Avanzamento)
+    param([Parameter(Mandatory)][string[]]$Indirizzi, [int]$TimeoutMs = 800, [int]$Blocco = 256, [scriptblock]$Avanzamento)
     $vivi = New-Object System.Collections.Generic.List[string]
     for ($i = 0; $i -lt $Indirizzi.Count; $i += $Blocco) {
         $parte = @($Indirizzi[$i..([math]::Min($i + $Blocco, $Indirizzi.Count) - 1)])
@@ -337,11 +337,13 @@ function Invoke-HDPingParallelo {
             $p = New-Object System.Net.NetworkInformation.Ping
             [pscustomobject]@{ IP = $ip; Ping = $p; Attesa = $p.SendPingAsync($ip, $TimeoutMs) }
         }
-        try { [void][System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]@($prove | ForEach-Object { $_.Attesa }), $TimeoutMs + 3000) }
+        # Windows può metterci qualche secondo a dare per irraggiungibile un indirizzo senza risposta ARP:
+        # non si aspetta oltre il timeout (chi risponde lo fa entro quel tempo)
+        try { [void][System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]@($prove | ForEach-Object { $_.Attesa }), $TimeoutMs + 700) }
         catch { Write-Verbose "Alcuni ping non sono partiti: $($_.Exception.Message)" }
         foreach ($p in $prove) {
             if ($p.Attesa.Status -eq 'RanToCompletion' -and $p.Attesa.Result.Status -eq 'Success') { $vivi.Add($p.IP) }
-            $p.Ping.Dispose()
+            if ($p.Attesa.IsCompleted) { $p.Ping.Dispose() }
         }
         if ($Avanzamento) { & $Avanzamento ('Ping: {0} di {1} indirizzi' -f [math]::Min($i + $Blocco, $Indirizzi.Count), $Indirizzi.Count) }
     }
@@ -365,8 +367,15 @@ function Get-HDViciniArp {
     @($voci | Where-Object { Test-HDIpNellaRete -Ip $_.IP -Info $Info })
 }
 
+function Test-HDNomeValido {
+    # Scarta i nomi segnaposto che alcuni dispositivi annunciano ("(none)", "localhost"...)
+    param([string]$Nome)
+    $n = ([string]$Nome).Trim()
+    ($n -and $n -notmatch '(?i)^(\(none\).*|none|localhost|unknown|null|default|-+)$')
+}
+
 function Resolve-HDNetbiosRemoto {
-    param([Parameter(Mandatory)][string[]]$Indirizzi, [int]$AttesaMs = 1500)
+    param([Parameter(Mandatory)][string[]]$Indirizzi, [int]$AttesaMs = 1200)
     $risposte = @{}
     $udp = New-Object System.Net.Sockets.UdpClient(0)
     try {
@@ -393,7 +402,7 @@ function Resolve-HDNetbiosRemoto {
 
 function Resolve-HDNomeMulticast {
     # Chiede il nome via mDNS (stampanti, telefoni, router, dispositivi Apple/Android, IoT)
-    param([Parameter(Mandatory)][string[]]$Indirizzi, [int]$AttesaMs = 1500)
+    param([Parameter(Mandatory)][string[]]$Indirizzi, [int]$AttesaMs = 1200)
     $nomi = @{}
     $udp = New-Object System.Net.Sockets.UdpClient(0)
     try {

@@ -379,6 +379,7 @@ function ConvertTo-HDRecordCensimento {
         CynetInEsecuzione = $cynet.InEsecuzione
         DiscoMinimoPct    = $dischi.MinimoPct
         SerialeBios       = $serialeBios
+        TempiRaccolta     = $Grezzo.Tempi
         Dettagli          = $extra.Dettagli
         Software          = $extra.Software
         Rilevato          = $Grezzo.Raccolto

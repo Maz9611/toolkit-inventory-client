@@ -5,7 +5,65 @@
 $script:HDRaccoltaCensimento = {
     param([string]$ModelloCynet = 'Cynet')
     function Leggi([scriptblock]$Blocco) { try { & $Blocco } catch { $null } }
+    $cronometro = [System.Diagnostics.Stopwatch]::StartNew()
     $g = [ordered]@{}
+
+    # Le letture lente partono subito in parallelo (runspace separati, testo autonomo) mentre
+    # il resto si legge qui; se il parallelo non è disponibile si fanno in fila alla fine.
+    $lente = [ordered]@{
+        Licenza   = {
+            $t = [System.Diagnostics.Stopwatch]::StartNew()
+            $r = $null
+            try { $r = @(Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "ApplicationID='55c92734-d682-4d71-983e-d6ec3f16059f' AND PartialProductKey IS NOT NULL" -ErrorAction Stop | Select-Object Name, Description, LicenseStatus) } catch { $r = $null }
+            @{ Licenza = $r; Ms = $t.ElapsedMilliseconds }
+        }
+        Programmi = {
+            $t = [System.Diagnostics.Stopwatch]::StartNew()
+            $chiavi = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+            $p = $null
+            try { $p = @(Get-ItemProperty -Path $chiavi -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName } | Select-Object DisplayName, DisplayVersion, Publisher, InstallDate, SystemComponent, ParentKeyName, ReleaseType) } catch { $p = $null }
+            $o = $null
+            try { $o = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction Stop | Select-Object ProductReleaseIds, VersionToReport } catch { $o = $null }
+            @{ Programmi = $p; OfficeC2R = $o; Ms = $t.ElapsedMilliseconds }
+        }
+        Dischi    = {
+            $t = [System.Diagnostics.Stopwatch]::StartNew()
+            $r = @{ DischiFisici = $null; Smart = $null; SmartPrevisione = $null; DischiWin32 = $null }
+            $fisici = $null
+            try { $fisici = @(Get-CimInstance -Namespace 'root/Microsoft/Windows/Storage' -ClassName MSFT_PhysicalDisk -ErrorAction Stop) } catch { $fisici = $null }
+            if ($null -ne $fisici) {
+                $r.DischiFisici = @($fisici | Select-Object FriendlyName, MediaType, BusType, Size, HealthStatus)
+                # SMART: contatori di affidabilità (temperatura, usura, ore, errori). Servono i diritti di amministratore.
+                try {
+                    $r.Smart = @($fisici | Where-Object { [string]$_.BusType -ne '7' } | ForEach-Object {
+                            $c = Get-CimAssociatedInstance -InputObject $_ -ResultClassName MSFT_StorageReliabilityCounter -ErrorAction Stop | Select-Object -First 1
+                            [pscustomobject]@{ Disco = [string]$_.FriendlyName; Temperatura = $c.Temperature; Usura = $c.Wear; Ore = $c.PowerOnHours; ErroriLettura = $c.ReadErrorsUncorrected; ErroriScrittura = $c.WriteErrorsUncorrected }
+                        })
+                }
+                catch { $r.Smart = $null }
+            }
+            else {
+                try { $r.DischiWin32 = @(Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop | Select-Object Model, Size, MediaType, InterfaceType, Status) } catch { $r.DischiWin32 = $null }
+            }
+            try { $r.SmartPrevisione = @(Get-CimInstance -Namespace 'root/wmi' -ClassName MSStorageDriver_FailurePredictStatus -ErrorAction Stop | Select-Object InstanceName, PredictFailure) } catch { $r.SmartPrevisione = $null }
+            $r.Ms = $t.ElapsedMilliseconds
+            $r
+        }
+    }
+    $inCorso = @{}
+    $pool = $null
+    try {
+        $pool = [runspacefactory]::CreateRunspacePool(1, $lente.Count)
+        $pool.Open()
+        foreach ($k in $lente.Keys) {
+            $ps = [powershell]::Create()
+            $ps.RunspacePool = $pool
+            [void]$ps.AddScript($lente[$k].ToString())
+            $inCorso[$k] = @{ PS = $ps; Attesa = $ps.BeginInvoke() }
+        }
+    }
+    catch { $inCorso = @{} }
+
     $g.NomePC = $env:COMPUTERNAME
     $g.UnitaSistema = $env:SystemDrive
     $g.ComputerSystem = Leggi { Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop | Select-Object -First 1 Manufacturer, Model, Domain, PartOfDomain, Workgroup, UserName, TotalPhysicalMemory, PCSystemType }
@@ -37,16 +95,6 @@ $script:HDRaccoltaCensimento = {
     $g.SecureBoot = Leggi { [pscustomobject]@{ Attivo = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State' -Name UEFISecureBootEnabled -ErrorAction Stop).UEFISecureBootEnabled } }
     $g.Tpm = Leggi { Get-CimInstance -Namespace 'root/cimv2/Security/MicrosoftTpm' -ClassName Win32_Tpm -ErrorAction Stop | Select-Object -First 1 SpecVersion, IsEnabled_InitialValue, IsActivated_InitialValue }
     $g.TpmDispositivi = Leggi { [pscustomobject]@{ Nomi = @(Get-CimInstance -ClassName Win32_PnPEntity -Filter "PNPClass='SecurityDevices'" -ErrorAction Stop | ForEach-Object { [string]$_.Name }) } }
-    $g.DischiFisici = Leggi { @(Get-CimInstance -Namespace 'root/Microsoft/Windows/Storage' -ClassName MSFT_PhysicalDisk -ErrorAction Stop | Select-Object FriendlyName, MediaType, BusType, Size, HealthStatus) }
-    # SMART: contatori di affidabilità (temperatura, usura, ore, errori) e previsione di guasto. Servono i diritti di amministratore.
-    $g.Smart = Leggi {
-        @(Get-CimInstance -Namespace 'root/Microsoft/Windows/Storage' -ClassName MSFT_PhysicalDisk -ErrorAction Stop | Where-Object { [string]$_.BusType -ne '7' } | ForEach-Object {
-                $c = Get-CimAssociatedInstance -InputObject $_ -ResultClassName MSFT_StorageReliabilityCounter -ErrorAction Stop | Select-Object -First 1
-                [pscustomobject]@{ Disco = [string]$_.FriendlyName; Temperatura = $c.Temperature; Usura = $c.Wear; Ore = $c.PowerOnHours; ErroriLettura = $c.ReadErrorsUncorrected; ErroriScrittura = $c.WriteErrorsUncorrected }
-            })
-    }
-    $g.SmartPrevisione = Leggi { @(Get-CimInstance -Namespace 'root/wmi' -ClassName MSStorageDriver_FailurePredictStatus -ErrorAction Stop | Select-Object InstanceName, PredictFailure) }
-    if ($null -eq $g.DischiFisici) { $g.DischiWin32 = Leggi { @(Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop | Select-Object Model, Size, MediaType, InterfaceType, Status) } }
     $g.BitLockerAdmin = Leggi { @(Get-CimInstance -Namespace 'root/cimv2/Security/MicrosoftVolumeEncryption' -ClassName Win32_EncryptableVolume -ErrorAction Stop | Select-Object DriveLetter, ProtectionStatus) }
     if ($null -eq $g.BitLockerAdmin) {
         $g.BitLockerShell = Leggi {
@@ -63,12 +111,6 @@ $script:HDRaccoltaCensimento = {
             })
     }
     $g.Stampanti = Leggi { @(Get-CimInstance -ClassName Win32_Printer -ErrorAction Stop | Select-Object Name, DriverName, PortName, Network, Default) }
-    $g.Programmi = Leggi {
-        $chiavi = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
-        @(Get-ItemProperty -Path $chiavi -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName } | Select-Object DisplayName, DisplayVersion, Publisher, InstallDate, SystemComponent, ParentKeyName, ReleaseType)
-    }
-    $g.OfficeC2R = Leggi { Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction Stop | Select-Object ProductReleaseIds, VersionToReport }
-    $g.Licenza = Leggi { @(Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "ApplicationID='55c92734-d682-4d71-983e-d6ec3f16059f' AND PartialProductKey IS NOT NULL" -ErrorAction Stop | Select-Object Name, Description, LicenseStatus) }
     $g.Antivirus = Leggi { @(Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName AntiVirusProduct -ErrorAction Stop | Select-Object displayName, productState) }
     $g.DesktopRemoto = Leggi { (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -ErrorAction Stop).fDenyTSConnections }
     $percorsiCynet = @()
@@ -77,10 +119,33 @@ $script:HDRaccoltaCensimento = {
     if (${env:ProgramFiles(x86)}) { $percorsiCynet += Join-Path ${env:ProgramFiles(x86)} 'Cynet' }
     $g.Cynet = [pscustomobject]@{
         Processi  = @(Leggi { Get-Process -ErrorAction Stop | Where-Object { $_.ProcessName -match $ModelloCynet } | ForEach-Object { $_.ProcessName } | Select-Object -Unique })
-        Servizi   = @(Leggi { Get-CimInstance -ClassName Win32_Service -ErrorAction Stop | Where-Object { $_.Name -match $ModelloCynet -or $_.DisplayName -match $ModelloCynet } | ForEach-Object { $_.Name } })
-        Programmi = @(Leggi { Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match $ModelloCynet -or $_.Publisher -match $ModelloCynet } | ForEach-Object { $_.DisplayName } | Select-Object -Unique })
+        Servizi   = @(Leggi { Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $ModelloCynet -or $_.DisplayName -match $ModelloCynet } | ForEach-Object { $_.Name } })
+        Programmi = @()
         File      = @($percorsiCynet | Where-Object { Test-Path -LiteralPath $_ })
     }
+    $tempi = [ordered]@{ Principale = $cronometro.ElapsedMilliseconds }
+
+    # Risultati delle letture lente
+    foreach ($k in $lente.Keys) {
+        $risultato = $null
+        if ($inCorso.ContainsKey($k)) {
+            try { $risultato = @($inCorso[$k].PS.EndInvoke($inCorso[$k].Attesa))[0] } catch { $risultato = $null }
+            $inCorso[$k].PS.Dispose()
+        }
+        else {
+            try { $risultato = & $lente[$k] } catch { $risultato = $null }
+        }
+        if ($risultato -is [hashtable]) {
+            foreach ($campo in $risultato.Keys) { if ($campo -ne 'Ms') { $g[$campo] = $risultato[$campo] } }
+            $tempi[$k] = $risultato.Ms
+        }
+    }
+    if ($pool) { $pool.Close(); $pool.Dispose() }
+    if ($g.Programmi) {
+        $g.Cynet.Programmi = @(@($g.Programmi) | Where-Object { $_.DisplayName -match $ModelloCynet -or $_.Publisher -match $ModelloCynet } | ForEach-Object { $_.DisplayName } | Select-Object -Unique)
+    }
+    $tempi['Totale'] = $cronometro.ElapsedMilliseconds
+    $g.Tempi = [pscustomobject]$tempi
     $g.Raccolto = Get-Date
     [pscustomobject]$g
 }

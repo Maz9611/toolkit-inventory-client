@@ -16,6 +16,7 @@ using System.Management.Automation;
 using System.Management.Automation.Host;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 #if !SENZA_FINESTRA
@@ -146,9 +147,16 @@ namespace ToolkitHelpDesk
     {
         private const string Titolo = "Toolkit Help Desk";
 
+        // Finestra nitida sugli schermi ad alta risoluzione (125%, 150%...): senza, Windows la
+        // ingrandisce come un'immagine e il testo appare sfocato.
+        [DllImport("user32.dll")]
+        private static extern bool SetProcessDPIAware();
+
         [STAThread]
         private static int Main(string[] argomenti)
         {
+            try { SetProcessDPIAware(); }
+            catch (Exception) { }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);

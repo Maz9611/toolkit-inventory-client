@@ -146,7 +146,8 @@ Ogni censimento sul PC scrive anche:
   toolkit non lo tocca e te lo segnala.
 - **Avviato come amministratore** legge TPM, BitLocker e SMART in modo preciso. Da utente normale
   stima TPM e BitLocker (dove non si può dirlo scrive "Da verificare") e non legge lo SMART.
-- La lettura dei dati del PC ora richiede 10-20 secondi: la parte più lenta è la licenza di Windows.
+- La lettura dei dati del PC richiede pochi secondi: le parti lente (licenza di Windows, programmi
+  installati, dischi) vengono lette in parallelo. `Avvia-Prova.cmd` mostra quanto ci mette ogni parte.
 
 ### Le regole, per fidarsi del risultato
 
@@ -238,7 +239,7 @@ Ogni comando ha la guida: `Get-Help Invoke-ScansioneRete -Full`. Quelli che scri
 
 ## Cosa è stato verificato e cosa no
 
-- **Test automatici:** ne passano 334 (Excel con più fogli, scansione anche su più reti, abbinamenti,
+- **Test automatici:** ne passano 335 (Excel con più fogli, scansione anche su più reti, abbinamenti,
   formati delle colonne, fogli Dettagli e Software, verifica postazione, motore dell'exe). A ogni
   modifica girano anche su Windows PowerShell 5.1 con GitHub Actions, che crea l'exe e lo avvia. PSScriptAnalyzer, con le regole di compatibilità per Windows PowerShell 5.1,
   non segnala problemi.

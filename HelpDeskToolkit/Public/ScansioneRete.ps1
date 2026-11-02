@@ -100,14 +100,14 @@ function Invoke-ScansioneRete {
         $fonte = @()
         if ($rispondono -contains $ip) { $fonte += 'ping' }
         if ($arp.ContainsKey($ip)) { $fonte += 'ARP' }
-        if ($netbios.ContainsKey($ip)) {
+        if ($netbios.ContainsKey($ip) -and (Test-HDNomeValido $netbios[$ip].Nome)) {
             $nome = $netbios[$ip].Nome
             $gruppo = $netbios[$ip].Gruppo
             if (-not $mac) { $mac = $netbios[$ip].MAC }
             $fonte += 'NetBIOS'
         }
-        elseif ($dns.ContainsKey($ip)) { $nome = $dns[$ip]; $fonte += 'DNS' }
-        elseif ($mdns.ContainsKey($ip)) { $nome = $mdns[$ip]; $fonte += 'mDNS' }
+        elseif ($dns.ContainsKey($ip) -and (Test-HDNomeValido $dns[$ip])) { $nome = $dns[$ip]; $fonte += 'DNS' }
+        elseif ($mdns.ContainsKey($ip) -and (Test-HDNomeValido $mdns[$ip])) { $nome = $mdns[$ip]; $fonte += 'mDNS' }
         if ($locale -and $ip -eq $locale.IP) {
             if (-not $nome) { $nome = $locale.Hostname }
             if (-not $mac) { $mac = $locale.MAC }
