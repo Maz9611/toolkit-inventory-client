@@ -19,7 +19,7 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
 - I nomi delle variabili non distinguono maiuscole: una variabile locale con lo stesso nome di un
   parametro tipizzato (`$rete` e `[string]$Rete`) ne eredita il tipo. Usa nomi diversi.
 - Le funzioni che restituiscono elenchi non usano `, @(...)` se il chiamante fa `@(...)` (array annidati).
-- La regola PSUseSingularNouns di PSScriptAnalyzer funziona solo su Windows (su Linux non segnala):
+- La regola PSUseSingularNouns di PSScriptAnalyzer su Windows segnala più casi che su Linux:
   niente nomi di funzione che finiscono in "s" (es. `...Antivirus`). In Windows PowerShell 5.1
   `Add-Type` non ha `-CompilerOptions`. La verifica vera è la build su GitHub Actions (Windows).
 
@@ -51,6 +51,19 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
 - Il formato dell'export di Advanced IP Scanner non è documentato: l'import riconosce le colonne
   per nome (`$script:HDCampiScansione`). Se arriva un export reale diverso, aggiungere i sinonimi
   e un test in `tests/Scansione.Tests.ps1`.
+
+## Fogli Dettagli e Software (Private/CensimentoDettagli.ps1)
+
+- Colonne in `$script:HDColonneDettagli` e `$script:HDColonneSoftware`; i dati grezzi in più li raccoglie
+  `$script:HDRaccoltaCensimento`, `ConvertTo-HDDettagliPC` (pura) li trasforma in testi e il record
+  li porta in `Dettagli` (hashtable) e `Software` (elenco, `$null` se non raccolto).
+- Dettagli: una riga per PC (seriale, poi hostname). Software: una riga per programma per PC, mai
+  cancellata: chi sparisce diventa `Presente = No`.
+- `Save-HDCensimento -Extra` scrive tutti i fogli in un'unica copia temporanea; `Add-HDFoglioXlsx`
+  crea i fogli mancanti negli Excel esistenti (aggiunge anche gli stili). Un foglio con lo stesso
+  nome ma altro contenuto (`Conflitto`) non si tocca.
+- Il foglio Software può avere migliaia di righe: `Read-HDXlsx -EscludiFogli Software` quando non
+  serve, niente chiamate di funzione per cella nei cicli di lettura e scrittura.
 
 ## Scansione di rete e finestra
 

@@ -100,6 +100,40 @@ le domande nella finestra nera); **`Importa-Scansione.cmd`** importa un file di 
 | Cynet | `Sì` o `No` (in rosso il "No") |
 | **Locazione** | la scrivi tu |
 
+### Gli altri due fogli: Dettagli e Software
+
+Le 20 colonne del foglio principale non cambiano. Ogni censimento sul PC scrive anche:
+
+**Dettagli**: una riga per PC, ritrovata per numero di serie o hostname.
+
+| Colonna | Esempio |
+|---|---|
+| Pronto per Windows 11 | `Sì`, `Già Windows 11`, `No: TPM 1.2 (serve 2.0), processore non supportato`, `Da verificare: ...` (in rosso i "No") |
+| TPM, Secure Boot, Avvio | `2.0`, `Attivo` / `Disattivato`, `UEFI` / `BIOS` |
+| Dischi fisici | `Samsung SSD 980 500GB (SSD NVMe, 500 GB, OK)` (in rosso `ATTENZIONE` e `GUASTO`) |
+| BitLocker | `C: attiva; D: non attiva` |
+| BIOS | versione e data, che dà anche un'idea dell'età del PC |
+| Monitor | modello e numero di serie: `DELL P2419H (S/N CFV9N93, 2020)` |
+| Stampanti | stampanti installate (non quelle virtuali come PDF e XPS), con l'IP se di rete |
+| Office | `Microsoft 365 Apps for business (16.0.17126)`, `Office Home and Business 2019`, `Non installato` |
+| Attivazione Windows | `Attivato (OEM, chiave nel BIOS)`, `Attivato (Volume KMS)`, `Non attivato` |
+| Antivirus | `Windows Defender (attivo, aggiornato)` |
+| Accesso remoto | `TeamViewer; AnyDesk; Desktop remoto di Windows attivo`, oppure `Nessuno` |
+| Programmi installati, Rilevato il | quanti programmi e quando è stato fatto il censimento |
+
+**Software**: una riga per ogni programma di ogni PC (Hostname, Programma, Versione, Editore,
+Installato il, Presente, Ultima rilevazione). Componenti di sistema, aggiornamenti e librerie come
+Visual C++ e .NET non sono elencati. Al censimento successivo le versioni si aggiornano, i
+programmi nuovi si aggiungono e quelli disinstallati restano con **Presente = No**: le righe non
+si cancellano mai. Con i filtri di Excel vedi per esempio su quali PC c'è un programma.
+
+- Negli Excel creati con le versioni precedenti i due fogli si aggiungono da soli al primo
+  censimento. Se hai già un tuo foglio chiamato "Dettagli" o "Software" con altro contenuto, il
+  toolkit non lo tocca e te lo segnala.
+- **Avviato come amministratore** legge TPM e BitLocker in modo preciso. Da utente normale li
+  stima, e dove non si può dirlo scrive "Da verificare".
+- La lettura dei dati del PC ora richiede 10-20 secondi: la parte più lenta è la licenza di Windows.
+
 ### Le regole, per fidarsi del risultato
 
 - **Come ritrova il PC nell'Excel.** Prima cerca il MAC (di qualsiasi scheda del PC), poi il
@@ -130,7 +164,7 @@ volta che arriva una versione nuova, prima di portarla dai clienti.
 
 1. Estrai lo zip completo.
 2. Doppio clic su **`Avvia-Prova.cmd`**. Prova tutto sul PC vero:
-   - i dati del PC;
+   - i dati del PC, anche quelli per i fogli Dettagli e Software;
    - la scansione della rete;
    - un censimento completo su un Excel di prova;
    - la costruzione della finestra;
@@ -190,15 +224,16 @@ Ogni comando ha la guida: `Get-Help Invoke-ScansioneRete -Full`. Quelli che scri
 
 ## Cosa è stato verificato e cosa no
 
-- **Test automatici:** ne passano 287 (Excel, scansione anche su più reti, abbinamenti, formati delle
-  colonne, verifica postazione, motore dell'exe). PSScriptAnalyzer, con le regole di compatibilità per Windows PowerShell 5.1,
+- **Test automatici:** ne passano 325 (Excel con più fogli, scansione anche su più reti, abbinamenti,
+  formati delle colonne, fogli Dettagli e Software, verifica postazione, motore dell'exe). A ogni
+  modifica girano anche su Windows PowerShell 5.1 con GitHub Actions, che crea l'exe e lo avvia. PSScriptAnalyzer, con le regole di compatibilità per Windows PowerShell 5.1,
   non segnala problemi.
 - **Excel prodotti:** superano il validatore ufficiale Open XML di Microsoft.
 - **Provati su Windows:** la finestra, la scansione su una rete domestica, il censimento (seriale
-  della scheda madre compreso).
-- **Non ancora provati su Windows:**
-  - `ToolkitHelpDesk.exe`: il suo motore è provato su Linux con PowerShell 7, ma su Windows usa
-    Windows PowerShell 5.1;
+  della scheda madre compreso); l'exe si crea e si avvia su Windows (GitHub Actions).
+- **Non ancora provati su un PC vero:**
+  - la lettura dei dati per i fogli Dettagli e Software (provata con dati simulati);
+  - `ToolkitHelpDesk.exe` usato con la finestra visibile;
   - la scansione su più reti e su una rete aziendale grande.
 
   È quello che controlla `Avvia-Prova.cmd`.

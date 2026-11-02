@@ -109,6 +109,13 @@ Invoke-Collaudo 'Dati di questo PC per il censimento' {
     'Cynet: {0}' -f $r.CynetDettaglio
     $vuoti = @($colonne | Where-Object { [string]::IsNullOrWhiteSpace([string]$r.$_) })
     if ($vuoti.Count -gt 0) { 'Campi vuoti (controlla se è normale su questo PC): ' + ($vuoti -join ', ') }
+    Assert-Vero ($null -ne $r.Dettagli) 'Dati del foglio Dettagli non raccolti'
+    ''
+    'Foglio Dettagli:'
+    foreach ($k in 'Windows11', 'TPM', 'SecureBoot', 'Avvio', 'DischiFisici', 'BitLocker', 'Bios', 'Monitor', 'Stampanti', 'Office', 'AttivazioneWindows', 'Antivirus', 'AccessoRemoto', 'Programmi') { '{0,-19}{1}' -f $k, $r.Dettagli[$k] }
+    $vuotiDettagli = @('TPM', 'Avvio', 'DischiFisici', 'Bios', 'AttivazioneWindows', 'Programmi' | Where-Object { -not $r.Dettagli[$_] })
+    if ($vuotiDettagli.Count -gt 0) { 'Dettagli vuoti (controlla se è normale su questo PC): ' + ($vuotiDettagli -join ', ') }
+    'Programmi trovati: {0} (primi 5: {1})' -f @($r.Software).Count, ((@($r.Software) | Select-Object -First 5 | ForEach-Object { $_.Nome }) -join '; ')
 }
 
 $script:excelProva = $null
@@ -131,6 +138,7 @@ Invoke-Collaudo 'Censimento su un Excel di prova (scansione + PC)' {
     Assert-Vero ($tabella.Righe.Count -eq 2) "Righe attese 2, trovate $($tabella.Righe.Count)"
     $riga = $tabella.Righe | Where-Object { $_.Valori['Hostname'] -eq $script:pc.Hostname } | Select-Object -First 1
     Assert-Vero ($riga.Valori['Locazione'] -eq 'Banco prova') 'Locazione non scritta'
+    Assert-Vero ($tabella.Dettagli.Esiste -and $tabella.Dettagli.Righe.Count -ge 1) 'Foglio Dettagli non scritto'
     Assert-Vero ($riga.Valori['SerialNumber'] -eq $script:pc.SerialNumber -or -not $script:pc.SerialNumber) 'Numero di serie non scritto'
     $script:excelProva = $import.Censimento
     'Excel di prova: {0}' -f $import.Censimento

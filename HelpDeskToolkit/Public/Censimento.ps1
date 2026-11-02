@@ -12,7 +12,7 @@ $script:HDRaccoltaCensimento = {
     $g.Prodotto = Leggi { Get-CimInstance -ClassName Win32_ComputerSystemProduct -ErrorAction Stop | Select-Object -First 1 Name, Version, IdentifyingNumber }
     $g.SistemaOperativo = Leggi { Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop | Select-Object -First 1 Caption, Version, BuildNumber }
     $g.VersioneWindows = Leggi { Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop | Select-Object DisplayVersion, ReleaseId, CurrentBuild, UBR }
-    $g.Bios = Leggi { Get-CimInstance -ClassName Win32_BIOS -ErrorAction Stop | Select-Object -First 1 SerialNumber }
+    $g.Bios = Leggi { Get-CimInstance -ClassName Win32_BIOS -ErrorAction Stop | Select-Object -First 1 SerialNumber, SMBIOSBIOSVersion, ReleaseDate, Manufacturer }
     $g.Telaio = Leggi { Get-CimInstance -ClassName Win32_SystemEnclosure -ErrorAction Stop | Select-Object -First 1 SerialNumber }
     $g.SchedaMadre = Leggi { Get-CimInstance -ClassName Win32_BaseBoard -ErrorAction Stop | Select-Object -First 1 Manufacturer, Product, SerialNumber }
     $g.Chassis = Leggi { @((Get-CimInstance -ClassName Win32_SystemEnclosure -ErrorAction Stop | Select-Object -First 1).ChassisTypes) }
@@ -31,6 +31,38 @@ $script:HDRaccoltaCensimento = {
         if ($tenant) { $nome = (Get-ItemProperty -Path $tenant.PSPath -ErrorAction SilentlyContinue).DisplayName }
         if ($nome) { $nome } else { '-' }
     }
+    # Dati per il foglio "Dettagli": pronto per Windows 11, dischi, monitor, stampanti, software.
+    # Senza diritti di amministratore alcuni (TPM, BitLocker) si leggono in modo meno preciso.
+    $g.Avvio = Leggi { (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control' -Name PEFirmwareType -ErrorAction Stop).PEFirmwareType }
+    $g.SecureBoot = Leggi { [pscustomobject]@{ Attivo = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State' -Name UEFISecureBootEnabled -ErrorAction Stop).UEFISecureBootEnabled } }
+    $g.Tpm = Leggi { Get-CimInstance -Namespace 'root/cimv2/Security/MicrosoftTpm' -ClassName Win32_Tpm -ErrorAction Stop | Select-Object -First 1 SpecVersion, IsEnabled_InitialValue, IsActivated_InitialValue }
+    $g.TpmDispositivi = Leggi { [pscustomobject]@{ Nomi = @(Get-CimInstance -ClassName Win32_PnPEntity -Filter "PNPClass='SecurityDevices'" -ErrorAction Stop | ForEach-Object { [string]$_.Name }) } }
+    $g.DischiFisici = Leggi { @(Get-CimInstance -Namespace 'root/Microsoft/Windows/Storage' -ClassName MSFT_PhysicalDisk -ErrorAction Stop | Select-Object FriendlyName, MediaType, BusType, Size, HealthStatus) }
+    if ($null -eq $g.DischiFisici) { $g.DischiWin32 = Leggi { @(Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop | Select-Object Model, Size, MediaType, InterfaceType, Status) } }
+    $g.BitLockerAdmin = Leggi { @(Get-CimInstance -Namespace 'root/cimv2/Security/MicrosoftVolumeEncryption' -ClassName Win32_EncryptableVolume -ErrorAction Stop | Select-Object DriveLetter, ProtectionStatus) }
+    if ($null -eq $g.BitLockerAdmin) {
+        $g.BitLockerShell = Leggi {
+            $shell = New-Object -ComObject Shell.Application
+            @(@($g.Volumi) | Where-Object { $_.DeviceID } | ForEach-Object {
+                    [pscustomobject]@{ Unita = [string]$_.DeviceID; Valore = $shell.NameSpace([string]$_.DeviceID + '\').Self.ExtendedProperty('System.Volume.BitLockerProtection') }
+                })
+        }
+    }
+    $g.Monitor = Leggi {
+        $testo = { param($Codici) -join @(@($Codici) | Where-Object { $_ -gt 0 } | ForEach-Object { [char][int]$_ }) }
+        @(Get-CimInstance -Namespace 'root/wmi' -ClassName WmiMonitorID -ErrorAction Stop | ForEach-Object {
+                [pscustomobject]@{ Produttore = (& $testo $_.ManufacturerName); Nome = (& $testo $_.UserFriendlyName); Seriale = (& $testo $_.SerialNumberID); Anno = $_.YearOfManufacture }
+            })
+    }
+    $g.Stampanti = Leggi { @(Get-CimInstance -ClassName Win32_Printer -ErrorAction Stop | Select-Object Name, DriverName, PortName, Network, Default) }
+    $g.Programmi = Leggi {
+        $chiavi = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        @(Get-ItemProperty -Path $chiavi -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName } | Select-Object DisplayName, DisplayVersion, Publisher, InstallDate, SystemComponent, ParentKeyName, ReleaseType)
+    }
+    $g.OfficeC2R = Leggi { Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction Stop | Select-Object ProductReleaseIds, VersionToReport }
+    $g.Licenza = Leggi { @(Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "ApplicationID='55c92734-d682-4d71-983e-d6ec3f16059f' AND PartialProductKey IS NOT NULL" -ErrorAction Stop | Select-Object Name, Description, LicenseStatus) }
+    $g.Antivirus = Leggi { @(Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName AntiVirusProduct -ErrorAction Stop | Select-Object displayName, productState) }
+    $g.DesktopRemoto = Leggi { (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -ErrorAction Stop).fDenyTSConnections }
     $percorsiCynet = @()
     if ($env:windir) { $percorsiCynet += Join-Path $env:windir 'CynetEPS.exe' }
     if ($env:ProgramFiles) { $percorsiCynet += Join-Path $env:ProgramFiles 'Cynet' }
@@ -73,7 +105,9 @@ function Get-InventarioPC {
     Restituisce le colonne del censimento: Hostname, Indirizzo IP, Tipo IP, MAC Address,
     Device Type, Manufacturer, Model, Nome Utente, Dominio, Serial Number, Operating System
     e versione, Memory, Processor Type, Free Disk Space % e Logical Disk Size del disco di
-    sistema, Cynet (Sì/No). Più i dettagli usati per ritrovare il PC nell'Excel.
+    sistema, Cynet (Sì/No). Più i dettagli usati per ritrovare il PC nell'Excel e, nelle
+    proprietà Dettagli e Software, i dati dei fogli Dettagli (Windows 11, TPM, dischi, monitor,
+    stampanti, Office, licenza, antivirus, accesso remoto) e Software (programmi installati).
 
     .PARAMETER ComputerName
     PC remoti (serve PowerShell Remoting/WinRM attivo e un account amministratore).
@@ -126,14 +160,30 @@ function Get-HDModelloCensimento {
     $null
 }
 
+function Get-HDFogliPrincipali {
+    # I fogli in cui cercare il censimento: tutti tranne Dettagli e Software
+    param([object[]]$Fogli)
+    $principali = @($Fogli | Where-Object { $_.Nome -ne $script:HDFoglioDettagli -and $_.Nome -ne $script:HDFoglioSoftware })
+    if ($principali.Count -eq 0) { return $Fogli }
+    $principali
+}
+
 function Get-HDTabellaCensimento {
-    param([Parameter(Mandatory)][string]$Percorso)
+    # Foglio principale del censimento, più il foglio Dettagli e (con -ConSoftware) il foglio Software
+    param([Parameter(Mandatory)][string]$Percorso, [switch]$ConSoftware)
     $p = Resolve-HDPercorso $Percorso
     if ([System.IO.Path]::GetExtension($p) -ne '.xlsx') {
         throw "Il censimento deve essere un file .xlsx (in Excel: File > Salva con nome > Cartella di lavoro di Excel): $p"
     }
-    $t = ConvertTo-HDTabellaCensimento -Fogli @(Read-HDXlsx -Percorso $p) -Percorso $p
+    $escludi = @()
+    if (-not $ConSoftware) { $escludi = @($script:HDFoglioSoftware) }
+    $fogli = @(Read-HDXlsx -Percorso $p -EscludiFogli $escludi)
+    $t = ConvertTo-HDTabellaCensimento -Fogli (Get-HDFogliPrincipali $fogli) -Percorso $p
     $t | Add-Member -NotePropertyName RigheIniziali -NotePropertyValue $t.Righe.Count
+    $t | Add-Member -NotePropertyName Dettagli -NotePropertyValue (ConvertTo-HDTabellaFoglio -Fogli $fogli -Nome $script:HDFoglioDettagli -Colonne $script:HDColonneDettagli)
+    $software = $null
+    if ($ConSoftware) { $software = ConvertTo-HDTabellaFoglio -Fogli $fogli -Nome $script:HDFoglioSoftware -Colonne $script:HDColonneSoftware }
+    $t | Add-Member -NotePropertyName Software -NotePropertyValue $software
     $t
 }
 
@@ -171,9 +221,20 @@ function Resolve-HDFileCensimento {
 
 function Save-HDCensimento {
     # Scrittura sicura: copia temporanea, modifica, rilettura di controllo, backup, sostituzione.
-    param([Parameter(Mandatory)]$Tabella, [Parameter(Mandatory)][hashtable]$Modifiche)
+    # -Extra: modifiche per i fogli Dettagli e Software (@{ Tabella; Modifiche }), che vengono
+    # creati se nel file non ci sono ancora.
+    param([Parameter(Mandatory)]$Tabella, [Parameter(Mandatory)][hashtable]$Modifiche, [object[]]$Extra = @())
     $lista = @(ConvertTo-HDModificheXlsx -Tabella $Tabella -Modifiche $Modifiche)
-    if ($lista.Count -eq 0) { return [pscustomobject]@{ Scritto = $false; Backup = $null; Saltate = @() } }
+    $altri = @(foreach ($e in @($Extra | Where-Object { $_ -and $_.Tabella })) {
+            $l = @(ConvertTo-HDModificheXlsx -Tabella $e.Tabella -Modifiche $e.Modifiche)
+            if ($l.Count -gt 0 -and $e.Tabella.ScriviIntestazione) {
+                $celle = @{}
+                for ($i = 0; $i -lt $e.Tabella.Definizione.Count; $i++) { $celle[$i + 1] = $e.Tabella.Definizione[$i].Titolo }
+                $l = @(@{ Riga = 1; Celle = $celle }) + $l
+            }
+            if ($l.Count -gt 0) { [pscustomobject]@{ Tabella = $e.Tabella; Lista = $l } }
+        })
+    if ($lista.Count -eq 0 -and $altri.Count -eq 0) { return [pscustomobject]@{ Scritto = $false; Backup = $null; Saltate = @() } }
     $cfg = Get-HDConfig
     $p = $Tabella.Percorso
     $cartella = Split-Path -Parent $p
@@ -183,8 +244,23 @@ function Save-HDCensimento {
     $numeriche = @($script:HDColonneCensimento | Where-Object { $_.Numerica -and $Tabella.Colonne.ContainsKey($_.Chiave) } | ForEach-Object { [int]$Tabella.Colonne[$_.Chiave] })
     try {
         Copy-Item -LiteralPath $p -Destination $temporaneo -Force -ErrorAction Stop
-        $saltate = Update-HDXlsx -Percorso $temporaneo -ParteFoglio $Tabella.ParteFoglio -IndiceFoglio $Tabella.IndiceFoglio -Modifiche $lista -ColonneNumeriche $numeriche -RigaIntestazione $Tabella.RigaIntestazione
-        $verifica = ConvertTo-HDTabellaCensimento -Fogli @(Read-HDXlsx -Percorso $temporaneo) -Percorso $temporaneo
+        $saltate = New-Object System.Collections.Generic.List[string]
+        if ($lista.Count -gt 0) {
+            $celleSaltate = Update-HDXlsx -Percorso $temporaneo -ParteFoglio $Tabella.ParteFoglio -IndiceFoglio $Tabella.IndiceFoglio -Modifiche $lista -ColonneNumeriche $numeriche -RigaIntestazione $Tabella.RigaIntestazione
+            foreach ($x in $celleSaltate) { if ($x) { $saltate.Add($x) } }
+        }
+        foreach ($a in $altri) {
+            $parte = $a.Tabella.ParteFoglio
+            $indice = $a.Tabella.IndiceFoglio
+            if (-not $a.Tabella.Esiste) {
+                $creato = Add-HDFoglioXlsx -Percorso $temporaneo -NomeFoglio $a.Tabella.Nome -Colonne $a.Tabella.Definizione
+                $parte = $creato.Parte
+                $indice = $creato.Indice
+            }
+            $celleSaltate = Update-HDXlsx -Percorso $temporaneo -ParteFoglio $parte -IndiceFoglio $indice -Modifiche $a.Lista -RigaIntestazione $a.Tabella.RigaIntestazione
+            foreach ($x in $celleSaltate) { if ($x) { $saltate.Add($x) } }
+        }
+        $verifica = ConvertTo-HDTabellaCensimento -Fogli (Get-HDFogliPrincipali @(Read-HDXlsx -Percorso $temporaneo -EscludiFogli @($script:HDFoglioSoftware))) -Percorso $temporaneo
         if ($verifica.Righe.Count -lt $Tabella.RigheIniziali) { throw 'controllo fallito dopo la scrittura (righe mancanti): Excel non modificato.' }
         $cartellaBackup = Join-Path $cartella 'backup'
         [void][System.IO.Directory]::CreateDirectory($cartellaBackup)
@@ -195,7 +271,7 @@ function Save-HDCensimento {
         Get-ChildItem -LiteralPath $cartellaBackup -Filter ($nome + '_*.xlsx') -File |
             Sort-Object LastWriteTime -Descending | Select-Object -Skip ([int]$cfg.Censimento.BackupDaTenere) |
             Remove-Item -Force -ErrorAction SilentlyContinue
-        [pscustomobject]@{ Scritto = $true; Backup = $backup; Saltate = @($saltate) }
+        [pscustomobject]@{ Scritto = $true; Backup = $backup; Saltate = @($saltate.ToArray()) }
     }
     catch {
         $errore = $_.Exception
@@ -271,7 +347,53 @@ function Read-HDRilevazione {
     $j = Read-HDFileTesto $Percorso | ConvertFrom-Json
     $manuali = @{}
     if ($j.Manuali) { foreach ($p in $j.Manuali.PSObject.Properties) { $manuali[$p.Name] = [string]$p.Value } }
-    [pscustomobject]@{ File = $Percorso; Dati = $j.Dati; Manuali = $manuali }
+    [pscustomobject]@{ File = $Percorso; Dati = $j.Dati; Manuali = $manuali; Rilevato = $j.Rilevato }
+}
+
+function ConvertTo-HDTabellaHash {
+    # Hashtable oppure oggetto letto dal JSON -> hashtable
+    param($Oggetto)
+    if ($Oggetto -is [hashtable]) { return $Oggetto }
+    $h = @{}
+    if ($Oggetto) { foreach ($p in $Oggetto.PSObject.Properties) { $h[$p.Name] = $p.Value } }
+    $h
+}
+
+function Add-HDExtraATabelle {
+    # Rilevazioni -> modifiche per i fogli Dettagli e Software
+    param([Parameter(Mandatory)]$Tabella, [Parameter(Mandatory)][object[]]$Rilevazioni)
+    $modDettagli = @{}
+    $modSoftware = @{}
+    $riepilogo = @{}
+    foreach ($nome in 'Dettagli', 'Software') {
+        $t = $Tabella.$nome
+        if ($t -and $t.Conflitto) { Write-Warning ("Nell'Excel c'è già un foglio '{0}' con un altro contenuto: quei dati non vengono scritti (rinomina il tuo foglio per averli)." -f $t.Nome) }
+    }
+    foreach ($ril in $Rilevazioni) {
+        $rec = $ril.Dati
+        $data = ''
+        if ($ril.Rilevato -is [datetime]) { $data = Format-HDData $ril.Rilevato }
+        elseif ($ril.Rilevato) {
+            $quando = [datetime]::MinValue
+            if ([datetime]::TryParse([string]$ril.Rilevato, $script:HDInvariante, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$quando)) { $data = Format-HDData $quando.ToLocalTime() }
+        }
+        if ($rec.Dettagli -and $Tabella.Dettagli -and -not $Tabella.Dettagli.Conflitto) {
+            $valori = @{}
+            $grezzi = ConvertTo-HDTabellaHash $rec.Dettagli
+            foreach ($k in $grezzi.Keys) { $valori[$k] = [string]$grezzi[$k] }
+            $valori['Hostname'] = [string]$rec.Hostname
+            $valori['SerialNumber'] = [string]$rec.SerialNumber
+            $valori['Rilevato'] = $data
+            [void](Add-HDDettagliATabella -Tabella $Tabella.Dettagli -Valori $valori -Modifiche $modDettagli)
+        }
+        if ($null -ne $rec.Software -and $Tabella.Software -and -not $Tabella.Software.Conflitto) {
+            $riepilogo[[string]$rec.Hostname] = Add-HDSoftwareATabella -Tabella $Tabella.Software -Hostname ([string]$rec.Hostname) -Programmi @($rec.Software) -Data $data -Modifiche $modSoftware
+        }
+    }
+    [pscustomobject]@{
+        Extra     = @(@{ Tabella = $Tabella.Dettagli; Modifiche = $modDettagli }, @{ Tabella = $Tabella.Software; Modifiche = $modSoftware })
+        Riepilogo = $riepilogo
+    }
 }
 
 function Invoke-HDSincronizzazione {
@@ -279,20 +401,22 @@ function Invoke-HDSincronizzazione {
     param([Parameter(Mandatory)][string]$FileCensimento)
     $cartella = Get-HDCartellaRilevazioni -FileCensimento $FileCensimento -InAttesa
     $file = @(Get-ChildItem -LiteralPath $cartella -Filter '*.json' -File -ErrorAction SilentlyContinue | Sort-Object { ($_.BaseName -split '_')[-1] }, Name)
-    $vuoto = [pscustomobject]@{ Esiti = @(); Scritto = $false; Backup = $null; Saltate = @(); Errore = $null; Inserite = 0 }
+    $vuoto = [pscustomobject]@{ Esiti = @(); Scritto = $false; Backup = $null; Saltate = @(); Errore = $null; Inserite = 0; Software = @{} }
     if ($file.Count -eq 0) { return $vuoto }
     $rilevazioni = @(foreach ($f in $file) {
             try { Read-HDRilevazione $f.FullName }
             catch { Write-Warning "Rilevazione illeggibile, la lascio da parte: $($f.FullName)" }
         })
     if ($rilevazioni.Count -eq 0) { return $vuoto }
-    $tabella = Get-HDTabellaCensimento $FileCensimento
+    $serveSoftware = @($rilevazioni | Where-Object { $null -ne $_.Dati.Software }).Count -gt 0
+    $tabella = Get-HDTabellaCensimento $FileCensimento -ConSoftware:$serveSoftware
     $applicate = Add-HDRilevazioniATabella -Tabella $tabella -Rilevazioni $rilevazioni
-    try { $s = Save-HDCensimento -Tabella $tabella -Modifiche $applicate.Modifiche }
-    catch { return [pscustomobject]@{ Esiti = $applicate.Esiti; Scritto = $false; Backup = $null; Saltate = @(); Errore = $_.Exception.Message; Inserite = 0 } }
+    $extra = Add-HDExtraATabelle -Tabella $tabella -Rilevazioni $rilevazioni
+    try { $s = Save-HDCensimento -Tabella $tabella -Modifiche $applicate.Modifiche -Extra $extra.Extra }
+    catch { return [pscustomobject]@{ Esiti = $applicate.Esiti; Scritto = $false; Backup = $null; Saltate = @(); Errore = $_.Exception.Message; Inserite = 0; Software = $extra.Riepilogo } }
     $archivio = Split-Path -Parent $cartella
     foreach ($r in $rilevazioni) { Move-Item -LiteralPath $r.File -Destination (Join-Path $archivio (Split-Path -Leaf $r.File)) -Force -ErrorAction SilentlyContinue }
-    [pscustomobject]@{ Esiti = $applicate.Esiti; Scritto = $s.Scritto; Backup = $s.Backup; Saltate = $s.Saltate; Errore = $null; Inserite = $rilevazioni.Count }
+    [pscustomobject]@{ Esiti = $applicate.Esiti; Scritto = $s.Scritto; Backup = $s.Backup; Saltate = $s.Saltate; Errore = $null; Inserite = $rilevazioni.Count; Software = $extra.Riepilogo }
 }
 
 #endregion
@@ -307,8 +431,10 @@ function New-Censimento {
     .DESCRIPTION
     Il file nasce nella cartella Censimento del toolkit (quindi sulla chiavetta) con
     intestazione bloccata, filtri, colonne da compilare a mano evidenziate in giallo,
-    elenchi a discesa per Tipo IP e Cynet, spazio disco basso e Cynet "No" in rosso.
-    Se nella cartella c'è un tuo Modello.xlsx viene usato quello.
+    elenchi a discesa per Tipo IP e Cynet, Cynet "No" in rosso. Ha anche i fogli Dettagli
+    (Windows 11, dischi, monitor, stampanti, Office, licenza...) e Software (programmi
+    installati). Se nella cartella c'è un tuo Modello.xlsx viene usato quello: i fogli
+    Dettagli e Software si aggiungono da soli al primo censimento.
 
     .EXAMPLE
     New-Censimento 'Studio Rossi'
@@ -332,9 +458,20 @@ function New-Censimento {
     else {
         $indice = @{}
         for ($i = 0; $i -lt $script:HDColonneCensimento.Count; $i++) { $indice[$script:HDColonneCensimento[$i].Chiave] = $i + 1 }
+        $dettagli = @{}
+        for ($i = 0; $i -lt $script:HDColonneDettagli.Count; $i++) { $dettagli[$script:HDColonneDettagli[$i].Chiave] = $i + 1 }
+        $altri = @(
+            @{ Nome = $script:HDFoglioDettagli; Colonne = $script:HDColonneDettagli; Evidenzia = @{
+                    $dettagli['Windows11']          = 'LEFT({0},3)="No:"'
+                    $dettagli['DischiFisici']       = 'OR(ISNUMBER(SEARCH("GUASTO",{0})),ISNUMBER(SEARCH("ATTENZIONE",{0})))'
+                    $dettagli['AttivazioneWindows'] = 'LEFT({0},12)="Non attivato"'
+                }
+            }
+            @{ Nome = $script:HDFoglioSoftware; Colonne = $script:HDColonneSoftware }
+        )
         New-HDXlsx -Percorso $p -NomeFoglio 'Censimento' -Colonne $script:HDColonneCensimento `
             -Elenchi @{ $indice['TipoIP'] = 'DHCP,Statico'; $indice['Cynet'] = 'Sì,No' } `
-            -Evidenzia @{ $indice['Cynet'] = '{0}="No"' }
+            -Evidenzia @{ $indice['Cynet'] = '{0}="No"' } -AltriFogli $altri
     }
     Get-Item -LiteralPath $p
 }
@@ -443,6 +580,19 @@ function Show-HDSchedaCensimento {
     }
     else { Write-Host ('  {0,-19}{1}' -f 'Cynet', 'No') -ForegroundColor Red }
     if ($null -ne $Record.DiscoMinimoPct -and "$($Record.DiscoMinimoPct)" -ne '' -and [int]$Record.DiscoMinimoPct -lt $SogliaDisco) { Write-Host '  Poco spazio libero su un disco.' -ForegroundColor Yellow }
+    if ($Record.Dettagli) {
+        $d = ConvertTo-HDTabellaHash $Record.Dettagli
+        Write-Host ' Dettagli (foglio Dettagli):' -ForegroundColor White
+        foreach ($c in $script:HDColonneDettagli) {
+            if ($c.Chiave -in 'Hostname', 'SerialNumber', 'Rilevato' -or -not [string]$d[$c.Chiave]) { continue }
+            $colore = 'Gray'
+            if ($c.Chiave -eq 'Windows11') {
+                if ($d[$c.Chiave] -match '^(Sì|Già)') { $colore = 'Green' } elseif ($d[$c.Chiave] -match '^No') { $colore = 'Red' } else { $colore = 'Yellow' }
+            }
+            elseif ([string]$d[$c.Chiave] -match 'GUASTO|ATTENZIONE|^Non attivato') { $colore = 'Red' }
+            Write-Host ('  {0,-19}{1}' -f $c.Titolo, $d[$c.Chiave]) -ForegroundColor $colore
+        }
+    }
     Write-Host ''
 }
 
@@ -469,12 +619,16 @@ function Add-PCCensimento {
     .EXAMPLE
     Add-PCCensimento
 
+    .PARAMETER Record
+    Dati del PC già letti con Get-InventarioPC (la finestra li passa per non rileggerli).
+
     .EXAMPLE
     Add-PCCensimento -Utilizzatore 'Mario Rossi' -Locazione 'Reception' -NonChiedere
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [string]$Censimento,
+        [object[]]$Record,
         [string[]]$ComputerName,
         [pscredential]$Credential,
         [string]$Utilizzatore,
@@ -489,9 +643,10 @@ function Add-PCCensimento {
     $tabella = Get-HDTabellaCensimento $file
     if ($tabella.Mancanti.Count -gt 0) { Write-Warning ("Nell'Excel mancano le colonne: {0}. Quei dati non verranno scritti." -f ($tabella.Mancanti -join ', ')) }
 
-    $record = @(Get-InventarioPC -ComputerName $ComputerName -Credential $Credential)
-    if ($record.Count -eq 0) { throw 'Nessun dato raccolto: censimento non eseguito.' }
-    foreach ($r in $record) {
+    if ($Record) { $raccolti = @($Record | Where-Object { $_ }) }
+    else { $raccolti = @(Get-InventarioPC -ComputerName $ComputerName -Credential $Credential) }
+    if ($raccolti.Count -eq 0) { throw 'Nessun dato raccolto: censimento non eseguito.' }
+    foreach ($r in $raccolti) {
         $trovata = Find-HDRigaCensimento -Righe $tabella.Righe -Mac (@($r.TuttiMAC) + @($r.MAC)) -Seriale $r.SerialNumber -Hostname $r.Hostname
         Show-HDSchedaCensimento -Record $r -Trovata $trovata -File $file -SogliaDisco ([int]$cfg.Soglie.DiscoAttenzionePct)
         $attuali = @{}
@@ -532,7 +687,13 @@ function Add-PCCensimento {
         Write-Host (" I dati sono al sicuro in {0}: verranno inseriti al prossimo censimento (o con Sync-Censimento)." -f (Get-HDCartellaRilevazioni -FileCensimento $file -InAttesa)) -ForegroundColor Yellow
     }
     elseif (@($esito.Saltate).Count -gt 0) { Write-Warning ('Celle con formule lasciate com''erano: ' + (@($esito.Saltate) -join ', ')) }
-    if ($esito.Inserite -gt $record.Count) { Write-Host (' Inserite anche {0} rilevazioni rimaste in sospeso.' -f ($esito.Inserite - $record.Count)) -ForegroundColor Cyan }
+    if (-not $esito.Errore) {
+        foreach ($h in @($esito.Software.Keys)) {
+            $sw = $esito.Software[$h]
+            Write-Host (' {0}: {1} programmi nel foglio Software ({2} nuovi, {3} non più presenti)' -f $h, $sw.Totale, $sw.Aggiunti, $sw.Rimossi) -ForegroundColor Green
+        }
+    }
+    if ($esito.Inserite -gt $raccolti.Count) { Write-Host (' Inserite anche {0} rilevazioni rimaste in sospeso.' -f ($esito.Inserite - $raccolti.Count)) -ForegroundColor Cyan }
     [pscustomobject]@{
         PSTypeName = 'HelpDesk.EsitoCensimento'
         Censimento = $file

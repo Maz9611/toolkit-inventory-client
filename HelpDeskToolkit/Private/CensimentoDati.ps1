@@ -346,6 +346,7 @@ function ConvertTo-HDRecordCensimento {
     if ($cs) { $tipo = Get-HDTipoDispositivo -ChassisTypes $Grezzo.Chassis -PCSystemType $cs.PCSystemType -SistemaOperativo $caption -Client $TipoClient -Server $TipoServer }
     $serialeBios = ''
     if ($Grezzo.Bios) { $serialeBios = ([string]$Grezzo.Bios.SerialNumber).Trim() }
+    $extra = ConvertTo-HDDettagliPC -Grezzo $Grezzo -SistemaOperativo $caption -Server ($tipo -eq $TipoServer -or $caption -match '(?i)server') -Processore ([string](@($cpu) | Select-Object -First 1).Name)
 
     [pscustomobject]@{
         PSTypeName        = 'HelpDesk.Censimento'
@@ -375,6 +376,8 @@ function ConvertTo-HDRecordCensimento {
         CynetInEsecuzione = $cynet.InEsecuzione
         DiscoMinimoPct    = $dischi.MinimoPct
         SerialeBios       = $serialeBios
+        Dettagli          = $extra.Dettagli
+        Software          = $extra.Software
         Rilevato          = $Grezzo.Raccolto
     }
 }

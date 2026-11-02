@@ -110,6 +110,33 @@ Describe 'File salvato da Excel (stringhe condivise, tabella, formule)' {
         New-XlsxGrezzo $script:ComeExcel $script:PartiComeExcel
     }
 
+    It 'aggiunge un foglio senza toccare gli altri (relazioni, tipi, stili, filtro)' {
+        $nuovo = InModuleScope HelpDeskToolkit -Parameters @{ P = $script:ComeExcel } {
+            param($P)
+            $c = Add-HDFoglioXlsx -Percorso $P -NomeFoglio 'Software' -Colonne $script:HDColonneSoftware
+            [void](Update-HDXlsx -Percorso $P -ParteFoglio $c.Parte -IndiceFoglio $c.Indice -Modifiche @(@{ Riga = 2; Celle = @{ 1 = 'PC-01'; 2 = 'Firefox' } }))
+            $c
+        }
+        $nuovo.Parte | Should -Be 'xl/worksheets/sheet3.xml'
+        $nuovo.Indice | Should -Be 2
+        $f = @(InModuleScope HelpDeskToolkit -Parameters @{ P = $script:ComeExcel } { param($P) Read-HDXlsx $P })
+        ($f | ForEach-Object { $_.Nome }) | Should -Be @('Info', 'Elenco PC', 'Software')
+        $f[2].Righe[1][2] | Should -Be 'Programma'
+        $f[2].Righe[2][2] | Should -Be 'Firefox'
+        $f[1].Righe[4][1] | Should -Be 'PC-02'
+        Get-VoceZip $script:ComeExcel '[Content_Types].xml' | Should -Match 'PartName="/xl/worksheets/sheet3.xml"'
+        $rels = Get-VoceZip $script:ComeExcel 'xl/_rels/workbook.xml.rels'
+        ([regex]::Matches($rels, '<Relationship ')).Count | Should -Be 5
+        $wb = Get-VoceZip $script:ComeExcel 'xl/workbook.xml'
+        $wb | Should -Match 'name="Software" sheetId="3" r:id="rIdHD1"'
+        $wb | Should -Match "_xlnm._FilterDatabase`" localSheetId=`"2`" hidden=`"1`">'Software'!\`$A\`$1:\`$G\`$2"
+        $stili = Get-VoceZip $script:ComeExcel 'xl/styles.xml'
+        $stili | Should -Match '<fonts count="2">'
+        $stili | Should -Match '<cellXfs count="5">'
+        Get-VoceZip $script:ComeExcel 'xl/worksheets/sheet3.xml' | Should -Match '<c r="A1" s="3" t="inlineStr">'
+        { InModuleScope HelpDeskToolkit -Parameters @{ P = $script:ComeExcel } { param($P) Add-HDFoglioXlsx -Percorso $P -NomeFoglio 'Software' -Colonne $script:HDColonneSoftware } } | Should -Throw '*esiste già*'
+    }
+
     It 'legge fogli, stringhe condivise e testo formattato a pezzi' {
         $f = @(InModuleScope HelpDeskToolkit -Parameters @{ P = $script:ComeExcel } { param($P) Read-HDXlsx $P })
         ($f | ForEach-Object { $_.Nome }) | Should -Be @('Info', 'Elenco PC')

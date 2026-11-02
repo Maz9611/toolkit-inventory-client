@@ -130,7 +130,7 @@ function Get-TabellaAttuale {
 }
 
 function Show-DatiPc {
-    Set-Occupato $true 'Lettura dei dati di questo PC...'
+    Set-Occupato $true 'Lettura dei dati di questo PC (10-20 secondi)...'
     try {
         $r = Get-InventarioPC
         if (-not $r) { throw 'Non sono riuscito a leggere i dati di questo PC.' }
@@ -151,6 +151,17 @@ function Show-DatiPc {
             @('Cynet', $cynet)
         )
         foreach ($v in $voci) { [void]$script:GrigliaPc.Rows.Add([string]$v[0], [string]$v[1]) }
+        # Dati del foglio Dettagli (Windows 11, dischi, monitor, software...)
+        if ($r.Dettagli) {
+            $colonneDettagli = & $script:Modulo { $script:HDColonneDettagli }
+            foreach ($c in $colonneDettagli) {
+                if ($c.Chiave -in 'Hostname', 'SerialNumber', 'Rilevato' -or -not [string]$r.Dettagli[$c.Chiave]) { continue }
+                $i = $script:GrigliaPc.Rows.Add([string]$c.Titolo, [string]$r.Dettagli[$c.Chiave])
+                $valore = [string]$r.Dettagli[$c.Chiave]
+                if (($c.Chiave -eq 'Windows11' -and $valore -match '^No') -or $valore -match 'GUASTO|^Non attivato') { $script:GrigliaPc.Rows[$i].DefaultCellStyle.BackColor = [System.Drawing.Color]::MistyRose }
+                elseif ($c.Chiave -eq 'Windows11' -and $valore -match '^Da verificare') { $script:GrigliaPc.Rows[$i].DefaultCellStyle.BackColor = [System.Drawing.Color]::LemonChiffon }
+            }
+        }
         $attuali = @{}
         $tabella = Get-TabellaAttuale
         if ($tabella) {
@@ -178,7 +189,7 @@ function Save-DatiPc {
     if (-not (Confirm-FileCensimento)) { return }
     Set-Occupato $true 'Scrittura nell''Excel...'
     try {
-        $p = @{ Censimento = $script:FileCensimento; NonChiedere = $true; Confirm = $false }
+        $p = @{ Censimento = $script:FileCensimento; Record = $script:Record; NonChiedere = $true; Confirm = $false }
         if ($script:CasellaUtilizzatore.Text.Trim()) { $p.Utilizzatore = $script:CasellaUtilizzatore.Text.Trim() }
         if ($script:CasellaLocazione.Text.Trim()) { $p.Locazione = $script:CasellaLocazione.Text.Trim() }
         if ($script:CasellaNote.Text.Trim()) { $p.Note = $script:CasellaNote.Text.Trim() }
@@ -188,6 +199,7 @@ function Save-DatiPc {
         $e = @($esito.Esiti)[0]
         if ($e.Azione -eq 'Aggiunto') { $testo = 'Fatto: {0} aggiunto alla riga {1}.' -f $e.Hostname, $e.Riga }
         else { $testo = 'Fatto: riga {0} aggiornata ({1}).' -f $e.Riga, $e.Motivo }
+        if ($script:Record.Dettagli) { $testo += ' Dettagli e programmi sono nei fogli "Dettagli" e "Software".' }
         $script:Stato.Text = $testo
         $script:EtichettaRiga.Text = $testo
         Show-Info $testo
