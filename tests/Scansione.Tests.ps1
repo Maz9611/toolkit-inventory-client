@@ -225,13 +225,54 @@ Describe 'ARP e NetBIOS' {
     }
 }
 
+Describe 'Produttore dal MAC e nomi mDNS' {
+    It 'riconosce il produttore dall''elenco IEEE e i MAC casuali dei telefoni' {
+        InModuleScope HelpDeskToolkit {
+            Get-HDProduttoreMac 'EC:71:DB:AE:F6:2F' | Should -Be 'Reolink Innovation Limited'
+            Get-HDProduttoreMac '94-08-53-D6-B9-9A' | Should -Be 'Liteon Technology Corporation'
+            Get-HDProduttoreMac '50284a9e5377' | Should -Be 'Intel Corporate'
+            Get-HDProduttoreMac '52:A2:0A:B3:51:B0' | Should -BeLike 'MAC casuale*'
+            Get-HDProduttoreMac '' | Should -Be ''
+        }
+    }
+
+    It 'prepara la domanda mDNS (PTR di in-addr.arpa) e legge il nome dalla risposta, anche compressa' {
+        InModuleScope HelpDeskToolkit {
+            $q = New-HDPacchettoMdnsInverso -Ip '192.168.3.1' -Id 0x1234
+            $q[0..5] | Should -Be @(0x12, 0x34, 0, 0, 0, 1)
+            [System.Text.Encoding]::ASCII.GetString($q, 12, $q.Length - 12) | Should -BeLike '*1*3*168*192*in-addr*arpa*'
+            $q[-4..-1] | Should -Be @(0, 12, 0, 1)
+            # risposta: intestazione, la stessa domanda, poi un PTR con il nome e "local" compresso
+            $nomeDomanda = @($q[12..($q.Length - 5)])
+            $risposta = [System.Collections.Generic.List[byte]]::new()
+            foreach ($b in @(0x12, 0x34, 0x84, 0, 0, 1, 0, 1, 0, 0, 0, 0)) { $risposta.Add([byte]$b) }
+            foreach ($b in $nomeDomanda) { $risposta.Add([byte]$b) }
+            foreach ($b in @(0, 12, 0, 1)) { $risposta.Add([byte]$b) }
+            foreach ($b in @(0xC0, 12, 0, 12, 0, 1, 0, 0, 0, 120)) { $risposta.Add([byte]$b) }
+            $dati = [System.Collections.Generic.List[byte]]::new()
+            $dati.Add(14); foreach ($c in 'GT-AX11000_Pro'.ToCharArray()) { $dati.Add([byte][int]$c) }
+            $dati.Add(5); foreach ($c in 'local'.ToCharArray()) { $dati.Add([byte][int]$c) }
+            $dati.Add(0)
+            $risposta.Add(0); $risposta.Add([byte]$dati.Count)
+            foreach ($b in $dati) { $risposta.Add($b) }
+            ConvertFrom-HDRispostaMulticast -Byte $risposta.ToArray() | Should -Be 'GT-AX11000_Pro'
+            ConvertFrom-HDRispostaMulticast -Byte ([byte[]]@(1, 2, 3)) | Should -Be ''
+        }
+    }
+}
+
 Describe 'Invoke-ScansioneRete (rete simulata)' {
     BeforeEach {
         Mock -ModuleName HelpDeskToolkit Test-HDWindows { $true }
         Mock -ModuleName HelpDeskToolkit Get-HDReteLocale { [pscustomobject]@{ IP = '192.168.1.37'; MAC = 'AA:AA:AA:AA:AA:37'; Rete = '192.168.1.0/24'; Nota = ''; Hostname = 'PC-TECNICO' } }
-        Mock -ModuleName HelpDeskToolkit Invoke-HDPingParallelo { @('192.168.1.1', '192.168.1.20', '192.168.1.37') }
+        # .69 è un telefono lento: risponde solo al secondo giro, con un timeout più lungo
+        Mock -ModuleName HelpDeskToolkit Invoke-HDPingParallelo {
+            $vivi = @('192.168.1.1', '192.168.1.20', '192.168.1.37')
+            if ($TimeoutMs -ge 1500) { $vivi += '192.168.1.69' }
+            @($vivi | Where-Object { $Indirizzi -contains $_ })
+        }
         Mock -ModuleName HelpDeskToolkit Get-HDViciniArp {
-            [pscustomobject]@{ IP = '192.168.1.1'; MAC = 'A0:B1:C2:D3:E4:F5' }
+            [pscustomobject]@{ IP = '192.168.1.1'; MAC = 'CC:28:AA:D2:EE:F0' }
             [pscustomobject]@{ IP = '192.168.1.20'; MAC = '00:11:22:33:44:55' }
             [pscustomobject]@{ IP = '192.168.1.30'; MAC = '00:11:22:33:44:30' }
         }
@@ -242,29 +283,35 @@ Describe 'Invoke-ScansioneRete (rete simulata)' {
             }
         }
         Mock -ModuleName HelpDeskToolkit Resolve-HDNomeDnsInverso { @{ '192.168.1.1' = 'router.fritz.box' } }
+        Mock -ModuleName HelpDeskToolkit Resolve-HDNomeMulticast { @{ '192.168.1.69' = 'Redmi-Note-12' } }
     }
 
     It 'unisce ping, ARP e nomi, in ordine di IP, e salva una copia CSV' {
         $s = Invoke-ScansioneRete -Confirm:$false
         $s.Rete | Should -Be '192.168.1.0/24'
-        @($s.Dispositivi | ForEach-Object { $_.IP }) | Should -Be @('192.168.1.1', '192.168.1.20', '192.168.1.30', '192.168.1.37')
+        @($s.Dispositivi | ForEach-Object { $_.IP }) | Should -Be @('192.168.1.1', '192.168.1.20', '192.168.1.30', '192.168.1.37', '192.168.1.69')
         $router = $s.Dispositivi[0]
         $router.Hostname | Should -Be 'ROUTER'
-        $router.MAC | Should -Be 'A0:B1:C2:D3:E4:F5'
+        $router.MAC | Should -Be 'CC:28:AA:D2:EE:F0'
+        $router.Produttore | Should -Be 'ASUSTek COMPUTER INC.'
         $router.Fonte | Should -Be 'ping, ARP, DNS'
         $s.Dispositivi[2].Fonte | Should -Be 'ARP, NetBIOS'
         $s.Dispositivi[3].Hostname | Should -Be 'PC-TECNICO'
         $s.Dispositivi[3].MAC | Should -Be 'AA:AA:AA:AA:AA:37'
         Test-Path -LiteralPath $s.FileCsv | Should -BeTrue
-        Should -Invoke -ModuleName HelpDeskToolkit Resolve-HDNomeDnsInverso -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 2 }
+        $s.Dispositivi[4].Hostname | Should -Be 'REDMI-NOTE-12'
+        $s.Dispositivi[4].Fonte | Should -Be 'ping, mDNS'
+        Should -Invoke -ModuleName HelpDeskToolkit Invoke-HDPingParallelo -Times 2
+        Should -Invoke -ModuleName HelpDeskToolkit Resolve-HDNomeDnsInverso -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 3 }
+        Should -Invoke -ModuleName HelpDeskToolkit Resolve-HDNomeMulticast -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 2 }
     }
 
     It 'con -NelCensimento mette i dispositivi nell''Excel (senza scrivere il dominio)' {
         $s = Invoke-ScansioneRete -NelCensimento -Cliente 'Rete Simulata' -NonChiedere -Confirm:$false
-        $s.Import.Aggiunti | Should -Be 4
+        $s.Import.Aggiunti | Should -Be 5
         $file = Join-Path $script:CartellaCensimentoTest 'Censimento_Rete-Simulata.xlsx'
         $t = InModuleScope HelpDeskToolkit -Parameters @{ P = $file } { param($P) Get-HDTabellaCensimento $P }
-        $t.Righe | Should -HaveCount 4
+        $t.Righe | Should -HaveCount 5
         $pc = $t.Righe | Where-Object { $_.Valori['Hostname'] -eq 'PC-RECEPTION' }
         $pc.Valori['MAC'] | Should -Be '00:11:22:33:44:55'
         $pc.Valori.ContainsKey('Dominio') | Should -BeFalse

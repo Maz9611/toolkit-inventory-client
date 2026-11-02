@@ -199,6 +199,109 @@ function ConvertFrom-HDRispostaNbstat {
 
 #endregion
 
+#region Produttore dal MAC (elenco IEEE) e nomi mDNS
+
+function Get-HDProduttoreMac {
+    # "EC:71:DB:AE:F6:2F" -> "Reolink Innovation Limited"; i MAC casuali di telefoni e tablet non hanno produttore
+    param([string]$Mac)
+    $m = ConvertTo-HDMac $Mac
+    if (-not $m) { return '' }
+    $esadecimale = $m -replace ':', ''
+    if (([Convert]::ToInt32($esadecimale.Substring(0, 2), 16) -band 2) -ne 0) { return 'MAC casuale (telefono, tablet o PC con privacy attiva)' }
+    if ($null -eq $script:HDProduttoriMac) { $script:HDProduttoriMac = Read-HDElencoProduttoriMac }
+    $nome = $null
+    if ($script:HDProduttoriMac.TryGetValue($esadecimale.Substring(0, 6), [ref]$nome)) { return $nome }
+    ''
+}
+
+function Read-HDElencoProduttoriMac {
+    # Elenco "OUI<TAB>produttore" compresso: dal file accanto al modulo oppure (nell'exe) dal testo passato all'avvio
+    $elenco = New-Object 'System.Collections.Generic.Dictionary[string,string]'
+    $testo = $script:HDTestoProduttoriMac
+    if (-not $testo) {
+        $file = Join-Path (Join-Path $script:HDModuloRadice 'Dati') 'produttori-mac.txt.gz'
+        if (-not (Test-Path -LiteralPath $file)) { return $elenco }
+        $flusso = [System.IO.File]::OpenRead($file)
+        try {
+            $gz = New-Object System.IO.Compression.GZipStream($flusso, [System.IO.Compression.CompressionMode]::Decompress)
+            $testo = (New-Object System.IO.StreamReader($gz, [System.Text.Encoding]::UTF8)).ReadToEnd()
+        }
+        finally { $flusso.Dispose() }
+    }
+    foreach ($riga in $testo.Split([char]10)) {
+        $i = $riga.IndexOf([char]9)
+        if ($i -eq 6) { $elenco[$riga.Substring(0, 6)] = $riga.Substring(7).Trim() }
+    }
+    $elenco
+}
+
+function New-HDPacchettoMdnsInverso {
+    # Domanda DNS "chi è x.x.x.x?" (PTR di in-addr.arpa), da mandare in unicast alla porta 5353 del dispositivo
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Crea solo un pacchetto in memoria')]
+    param([Parameter(Mandatory)][string]$Ip, [int]$Id = 0x4844)
+    $byte = New-Object System.Collections.Generic.List[byte]
+    foreach ($b in @((($Id -shr 8) -band 255), ($Id -band 255), 0, 0, 0, 1, 0, 0, 0, 0, 0, 0)) { $byte.Add([byte]$b) }
+    $etichette = @($Ip.Split('.')[3], $Ip.Split('.')[2], $Ip.Split('.')[1], $Ip.Split('.')[0], 'in-addr', 'arpa')
+    foreach ($e in $etichette) {
+        $byte.Add([byte]$e.Length)
+        foreach ($c in $e.ToCharArray()) { $byte.Add([byte][int]$c) }
+    }
+    foreach ($b in 0, 0, 12, 0, 1) { $byte.Add([byte]$b) }
+    , $byte.ToArray()
+}
+
+function ConvertFrom-HDNomeDominio {
+    # Nome DNS a partire da una posizione del pacchetto (anche compresso): Nome e posizione dopo il nome
+    param([byte[]]$Byte, [int]$Posizione)
+    $parti = New-Object System.Collections.Generic.List[string]
+    $pos = $Posizione
+    $fine = -1
+    $salti = 0
+    while ($pos -lt $Byte.Length) {
+        $lunghezza = [int]$Byte[$pos]
+        if ($lunghezza -eq 0) { $pos++; break }
+        if (($lunghezza -band 0xC0) -eq 0xC0) {
+            if ($pos + 1 -ge $Byte.Length) { break }
+            if ($fine -lt 0) { $fine = $pos + 2 }
+            $pos = (($lunghezza -band 0x3F) * 256) + [int]$Byte[$pos + 1]
+            $salti++
+            if ($salti -gt 20) { break }
+            continue
+        }
+        if ($pos + 1 + $lunghezza -gt $Byte.Length) { break }
+        $parti.Add([System.Text.Encoding]::UTF8.GetString($Byte, $pos + 1, $lunghezza))
+        $pos += 1 + $lunghezza
+    }
+    if ($fine -lt 0) { $fine = $pos }
+    [pscustomobject]@{ Nome = ($parti -join '.'); Fine = $fine }
+}
+
+function ConvertFrom-HDRispostaMulticast {
+    # Risposta mDNS -> nome del dispositivo senza ".local" (es. "GT-AX11000_Pro")
+    param([byte[]]$Byte)
+    if (-not $Byte -or $Byte.Length -lt 12) { return '' }
+    $domande = [int]$Byte[4] * 256 + [int]$Byte[5]
+    $risposte = [int]$Byte[6] * 256 + [int]$Byte[7]
+    $pos = 12
+    for ($i = 0; $i -lt $domande; $i++) { $pos = (ConvertFrom-HDNomeDominio $Byte $pos).Fine + 4 }
+    for ($i = 0; $i -lt $risposte -and $pos + 10 -le $Byte.Length; $i++) {
+        $pos = (ConvertFrom-HDNomeDominio $Byte $pos).Fine
+        if ($pos + 10 -gt $Byte.Length) { break }
+        $tipo = [int]$Byte[$pos] * 256 + [int]$Byte[$pos + 1]
+        $lunghezza = [int]$Byte[$pos + 8] * 256 + [int]$Byte[$pos + 9]
+        $inizio = $pos + 10
+        if ($tipo -eq 12) {
+            $nome = (ConvertFrom-HDNomeDominio $Byte $inizio).Nome
+            $nome = ($nome -replace '(?i)\.local\.?$', '').Trim('.')
+            if ($nome) { return $nome }
+        }
+        $pos = $inizio + $lunghezza
+    }
+    ''
+}
+
+#endregion
+
 #region Operazioni di rete (solo Windows)
 
 function Get-HDReteLocale {
@@ -286,6 +389,33 @@ function Resolve-HDNetbiosRemoto {
     }
     finally { $udp.Close() }
     $risposte
+}
+
+function Resolve-HDNomeMulticast {
+    # Chiede il nome via mDNS (stampanti, telefoni, router, dispositivi Apple/Android, IoT)
+    param([Parameter(Mandatory)][string[]]$Indirizzi, [int]$AttesaMs = 1500)
+    $nomi = @{}
+    $udp = New-Object System.Net.Sockets.UdpClient(0)
+    try {
+        $udp.Client.ReceiveTimeout = 250
+        $udp.Client.ReceiveBufferSize = 1048576
+        foreach ($ip in $Indirizzi) {
+            $richiesta = New-HDPacchettoMdnsInverso -Ip $ip
+            try { [void]$udp.Send($richiesta, $richiesta.Length, $ip, 5353) } catch { Write-Verbose "mDNS non inviato a ${ip}: $($_.Exception.Message)" }
+        }
+        $fine = (Get-Date).AddMilliseconds($AttesaMs)
+        $da = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
+        while ((Get-Date) -lt $fine -and $nomi.Count -lt $Indirizzi.Count) {
+            try {
+                $dati = $udp.Receive([ref]$da)
+                $nome = ConvertFrom-HDRispostaMulticast -Byte $dati
+                if ($nome) { $nomi[$da.Address.ToString()] = $nome }
+            }
+            catch { Write-Verbose 'Attesa risposte mDNS...' }
+        }
+    }
+    finally { $udp.Close() }
+    $nomi
 }
 
 function Resolve-HDNomeDnsInverso {

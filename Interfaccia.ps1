@@ -221,7 +221,7 @@ function Update-ColonnaNelCensimento {
             $t = & $script:Modulo { param($tab, $mac, $nome, $ip) Find-HDRigaCensimento -Righe $tab.Righe -Mac @($mac) -Hostname $nome -IP $ip -ConsentiIP } $tabella ([string]$riga.Cells[2].Value) ([string]$riga.Cells[1].Value) ([string]$riga.Cells[0].Value)
             if ($t) { $valore = 'riga {0}' -f $t.Riga.Numero }
         }
-        $riga.Cells[5].Value = $valore
+        $riga.Cells[6].Value = $valore
     }
 }
 
@@ -232,8 +232,8 @@ function Start-Scansione {
         if ($script:CasellaRete.Text.Trim()) { $p.Rete = $script:CasellaRete.Text.Trim() }
         $s = Invoke-ScansioneRete @p
         $script:Scansione = $s
-        Set-Colonne $script:GrigliaRete @('IP', 'Nome', 'MAC', 'Gruppo', 'Trovato con', 'Nel censimento')
-        foreach ($d in $s.Dispositivi) { [void]$script:GrigliaRete.Rows.Add($d.IP, $d.Hostname, $d.MAC, $d.Gruppo, $d.Fonte, '') }
+        Set-Colonne $script:GrigliaRete @('IP', 'Nome', 'MAC', 'Produttore', 'Gruppo', 'Trovato con', 'Nel censimento')
+        foreach ($d in $s.Dispositivi) { [void]$script:GrigliaRete.Rows.Add($d.IP, $d.Hostname, $d.MAC, $d.Produttore, $d.Gruppo, $d.Fonte, '') }
         Update-ColonnaNelCensimento
         $script:PulsanteAggiungi.Enabled = ($s.Dispositivi.Count -gt 0)
         $script:EtichettaScan.Text = 'Trovati {0} dispositivi in {1} secondi sulla rete {2}.' -f $s.Dispositivi.Count, $s.Secondi, $s.Rete
@@ -428,7 +428,7 @@ try {
     foreach ($c in @((New-Etichetta 'Rete:'), $script:CasellaRete, $pulsanteScansiona, $script:PulsanteAggiungi, $pulsanteFileScanner)) { $comandiRete.Controls.Add($c) }
     $script:EtichettaScan = New-Etichetta 'Di solito la rete proposta è già quella giusta: premi "Scansiona la rete" (10-20 secondi per una /24). Per più reti separale con una virgola: 192.168.1.0/24, 192.168.2.0/24'
     $script:GrigliaRete = New-Griglia
-    Set-Colonne $script:GrigliaRete @('IP', 'Nome', 'MAC', 'Gruppo', 'Trovato con', 'Nel censimento')
+    Set-Colonne $script:GrigliaRete @('IP', 'Nome', 'MAC', 'Produttore', 'Gruppo', 'Trovato con', 'Nel censimento')
     $layoutRete.Controls.Add($comandiRete, 0, 0)
     $layoutRete.Controls.Add($script:EtichettaScan, 0, 1)
     $layoutRete.Controls.Add($script:GrigliaRete, 0, 2)

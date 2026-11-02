@@ -3,6 +3,8 @@
 
 $script:HDModuloRadice = $PSScriptRoot
 $script:HDToolkitRadice = Split-Path -Parent $PSScriptRoot
+$script:HDTestoProduttoriMac = $null   # nell'exe arriva dall'avvio, qui si legge da Dati\produttori-mac.txt.gz
+$script:HDProduttoriMac = $null
 
 foreach ($sottocartella in 'Private', 'Public') {
     $percorso = Join-Path $PSScriptRoot $sottocartella

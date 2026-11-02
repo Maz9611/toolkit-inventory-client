@@ -70,6 +70,11 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
 
 ## Scansione di rete e finestra
 
+- Scansione: ping, ARP, secondo giro di ping più lento per chi non ha risposto, poi nomi da NetBIOS,
+  DNS inverso e mDNS (unicast sulla porta 5353). Produttore dal MAC con
+  `HelpDeskToolkit/Dati/produttori-mac.txt.gz` (OUI<TAB>nome, da oui-data/IEEE; nell'exe è una risorsa
+  passata al modulo come `$script:HDTestoProduttoriMac`).
+
 - `Private/ScansioneRete.ps1`: calcoli sulle reti, lettura ARP e NetBIOS (funzioni pure, testate) e le
   chiamate di rete vere (`Invoke-HDPingParallelo`, `Get-HDViciniArp`, `Resolve-HDNetbiosRemoto`,
   `Resolve-HDNomeDnsInverso`), che nei test si sostituiscono con Mock.

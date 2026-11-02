@@ -65,9 +65,17 @@ function Invoke-ScansioneRete {
     $indirizzi = @(Get-HDIndirizziRete $info)
     $rispondono = @(Invoke-HDPingParallelo -Indirizzi $indirizzi -TimeoutMs $TimeoutMs -Avanzamento $Avanzamento)
     & $segnala 'Lettura della tabella ARP...'
-    Start-Sleep -Milliseconds 300
+    Start-Sleep -Milliseconds 800
     $arp = @{}
     foreach ($v in @(Get-HDViciniArp -Info $info)) { $arp[$v.IP] = $v.MAC }
+    # Secondo giro, più lento, per chi non ha risposto (telefoni e dispositivi a risparmio energetico)
+    $mancanti = @($indirizzi | Where-Object { $rispondono -notcontains $_ -and -not $arp.ContainsKey($_) })
+    if ($mancanti.Count -gt 0) {
+        & $segnala ('Secondo giro per {0} indirizzi che non hanno risposto...' -f $mancanti.Count)
+        $rispondono = @($rispondono) + @(Invoke-HDPingParallelo -Indirizzi $mancanti -TimeoutMs ([math]::Max($TimeoutMs * 2, 1500)) -Avanzamento $Avanzamento)
+        Start-Sleep -Milliseconds 800
+        foreach ($v in @(Get-HDViciniArp -Info $info)) { $arp[$v.IP] = $v.MAC }
+    }
 
     $trovati = New-Object System.Collections.Generic.List[string]
     foreach ($ip in @($rispondono) + @($arp.Keys)) { if (-not $trovati.Contains($ip)) { $trovati.Add($ip) } }
@@ -76,10 +84,13 @@ function Invoke-ScansioneRete {
     & $segnala ('Ricerca dei nomi di {0} dispositivi...' -f $trovati.Count)
     $netbios = @{}
     $dns = @{}
+    $mdns = @{}
     if ($trovati.Count -gt 0) {
         $netbios = Resolve-HDNetbiosRemoto -Indirizzi $trovati.ToArray()
         $senzaNome = @($trovati | Where-Object { -not $netbios.ContainsKey($_) })
         if ($senzaNome.Count -gt 0) { $dns = Resolve-HDNomeDnsInverso -Indirizzi $senzaNome }
+        $senzaNome = @($senzaNome | Where-Object { -not $dns.ContainsKey($_) })
+        if ($senzaNome.Count -gt 0) { $mdns = Resolve-HDNomeMulticast -Indirizzi $senzaNome }
     }
 
     $dispositivi = foreach ($ip in ($trovati | Sort-Object { ConvertTo-HDNumeroIp $_ })) {
@@ -96,6 +107,7 @@ function Invoke-ScansioneRete {
             $fonte += 'NetBIOS'
         }
         elseif ($dns.ContainsKey($ip)) { $nome = $dns[$ip]; $fonte += 'DNS' }
+        elseif ($mdns.ContainsKey($ip)) { $nome = $mdns[$ip]; $fonte += 'mDNS' }
         if ($locale -and $ip -eq $locale.IP) {
             if (-not $nome) { $nome = $locale.Hostname }
             if (-not $mac) { $mac = $locale.MAC }
@@ -108,7 +120,7 @@ function Invoke-ScansioneRete {
             Nome       = $nome
             MAC        = (ConvertTo-HDMac $mac)
             Gruppo     = $gruppo
-            Produttore = ''
+            Produttore = (Get-HDProduttoreMac $mac)
             Utente     = ''
             Stato      = 'Attivo'
             Commenti   = ''
@@ -127,7 +139,7 @@ function Invoke-ScansioneRete {
             $nomeRete = ($info.Rete -replace '[^0-9A-Za-z]+', '-').Trim('-')
             if ($nomeRete.Length -gt 60) { $nomeRete = $nomeRete.Substring(0, 60).Trim('-') }
             $copia = Join-Path $cartella ('Scansione_{0}_{1}.csv' -f $nomeRete, (Get-Date).ToString('yyyyMMdd-HHmm', $script:HDInvariante))
-            $righe = @($dispositivi | Select-Object IP, Hostname, Nome, MAC, Gruppo, Fonte | ConvertTo-Csv -NoTypeInformation -Delimiter ';')
+            $righe = @($dispositivi | Select-Object IP, Hostname, Nome, MAC, Produttore, Gruppo, Fonte | ConvertTo-Csv -NoTypeInformation -Delimiter ';')
             Write-HDFileTesto -Percorso $copia -Testo (($righe -join "`r`n") + "`r`n")
         }
         catch { Write-Warning "Copia della scansione non salvata: $($_.Exception.Message)" }

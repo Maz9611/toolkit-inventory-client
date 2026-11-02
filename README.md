@@ -62,7 +62,11 @@ le domande nella finestra nera); **`Importa-Scansione.cmd`** importa un file di 
 - La rete proposta è quella del PC, intera fino a /20. Se la rete è più grande (es. /16) propone
   solo la /24 del PC: le altre parti le aggiungi tu.
 - **Stessa rete del PC:** si trovano anche i dispositivi che non rispondono al ping (tabella ARP),
-  con il MAC.
+  con il MAC. Chi non risponde subito (telefoni e dispositivi a risparmio energetico) viene
+  ricontattato in un secondo giro più lento.
+- **Nomi:** NetBIOS (PC Windows), DNS e mDNS (router, stampanti, telefoni, dispositivi smart).
+- **Produttore:** dal MAC, con l'elenco ufficiale IEEE dei produttori (incluso nel toolkit). I MAC
+  "casuali" di telefoni e tablet vengono indicati come tali.
 - **Altre reti/VLAN dietro un router:** si trovano solo i dispositivi che rispondono al ping, e senza
   MAC (l'ARP non attraversa i router). Molti PC Windows con il firewall attivo non rispondono al ping:
   li aggiunge comunque il censimento quando passi sul PC. I nomi arrivano da NetBIOS o dal DNS
@@ -234,7 +238,7 @@ Ogni comando ha la guida: `Get-Help Invoke-ScansioneRete -Full`. Quelli che scri
 
 ## Cosa è stato verificato e cosa no
 
-- **Test automatici:** ne passano 332 (Excel con più fogli, scansione anche su più reti, abbinamenti,
+- **Test automatici:** ne passano 334 (Excel con più fogli, scansione anche su più reti, abbinamenti,
   formati delle colonne, fogli Dettagli e Software, verifica postazione, motore dell'exe). A ogni
   modifica girano anche su Windows PowerShell 5.1 con GitHub Actions, che crea l'exe e lo avvia. PSScriptAnalyzer, con le regole di compatibilità per Windows PowerShell 5.1,
   non segnala problemi.
@@ -268,6 +272,10 @@ avvia (ping, NetBIOS, DNS) e tutti i dati restano nei file Excel e nei report ac
 ## Licenza
 
 MIT, vedi [LICENSE](LICENSE).
+
+L'elenco dei produttori di schede di rete (`HelpDeskToolkit/Dati/produttori-mac.txt.gz`) deriva dal
+registro pubblico IEEE MA-L tramite il pacchetto [oui-data](https://github.com/silverwind/oui-data)
+(licenza BSD-2-Clause, vedi `HelpDeskToolkit/Dati/produttori-mac-LICENSE.txt`).
 
 ## Struttura
 

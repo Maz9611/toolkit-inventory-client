@@ -49,10 +49,11 @@ function Get-PacchettoToolkit {
     # I due testi PowerShell che l'exe contiene: il modulo (come modulo dinamico) e la finestra
     $manifesto = Import-PowerShellDataFile (Join-Path $cartellaModulo 'HelpDeskToolkit.psd1')
     $parti = New-Object System.Collections.Generic.List[string]
-    $parti.Add('param($Radice)')
+    $parti.Add('param($Radice, $TestoProduttoriMac)')
     $parti.Add('# Modulo HelpDeskToolkit {0}, generato da exe\Crea-Exe.ps1: non modificare qui.' -f $manifesto.ModuleVersion)
     $parti.Add('$script:HDModuloRadice = $Radice')
     $parti.Add('$script:HDToolkitRadice = $Radice')
+    $parti.Add('$script:HDTestoProduttoriMac = $TestoProduttoriMac')
     foreach ($sottocartella in 'Private', 'Public') {
         foreach ($file in (Get-ChildItem -Path (Join-Path $cartellaModulo $sottocartella) -Filter '*.ps1' -File | Sort-Object Name)) {
             $parti.Add(('#region {0}\{1}' -f $sottocartella, $file.Name))
@@ -159,6 +160,8 @@ $risorse = [ordered]@{
     'modulo.ps1.gz'      = (ConvertTo-Gzip $pacchetto.Modulo)
     'interfaccia.ps1.gz' = (ConvertTo-Gzip $pacchetto.Interfaccia)
 }
+$fileProduttori = Join-Path (Join-Path $cartellaModulo 'Dati') 'produttori-mac.txt.gz'
+if (Test-Path -LiteralPath $fileProduttori) { $risorse['produttori-mac.txt.gz'] = [System.IO.File]::ReadAllBytes($fileProduttori) }
 
 $temporanea = Join-Path ([System.IO.Path]::GetTempPath()) ('HelpDeskToolkit-exe-' + [guid]::NewGuid().ToString('N'))
 [void][System.IO.Directory]::CreateDirectory($temporanea)

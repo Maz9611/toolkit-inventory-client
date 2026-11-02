@@ -67,10 +67,16 @@ namespace ToolkitHelpDesk
     public static class Esecutore
     {
         public const string CaricaModulo =
-            "param($Testo, $Radice) " +
-            "New-Module -Name HelpDeskToolkit -ScriptBlock ([scriptblock]::Create($Testo)) -ArgumentList $Radice | Import-Module -Global";
+            "param($Testo, $Radice, $ProduttoriMac) " +
+            "New-Module -Name HelpDeskToolkit -ScriptBlock ([scriptblock]::Create($Testo)) -ArgumentList $Radice, $ProduttoriMac | Import-Module -Global";
 
         public static int Esegui(string modulo, string interfaccia, string radice, string percorsoExe, bool verifica, bool impostaCriterio)
+        {
+            return Esegui(modulo, interfaccia, radice, percorsoExe, verifica, impostaCriterio, null);
+        }
+
+        // produttoriMac: elenco "OUI<TAB>produttore" per riconoscere il produttore dal MAC (puo' mancare)
+        public static int Esegui(string modulo, string interfaccia, string radice, string percorsoExe, bool verifica, bool impostaCriterio, string produttoriMac)
         {
             if (impostaCriterio)
             {
@@ -91,7 +97,7 @@ namespace ToolkitHelpDesk
                 using (PowerShell ps = PowerShell.Create())
                 {
                     ps.Runspace = spazio;
-                    ps.AddScript(CaricaModulo).AddParameter("Testo", modulo).AddParameter("Radice", radice);
+                    ps.AddScript(CaricaModulo).AddParameter("Testo", modulo).AddParameter("Radice", radice).AddParameter("ProduttoriMac", produttoriMac);
                     ps.Invoke();
                     if (ps.Streams.Error.Count > 0)
                     {
@@ -174,7 +180,10 @@ namespace ToolkitHelpDesk
             {
                 string modulo = Esecutore.LeggiRisorsa("modulo.ps1.gz");
                 string interfaccia = Esecutore.LeggiRisorsa("interfaccia.ps1.gz");
-                return Esecutore.Esegui(modulo, interfaccia, radice, percorsoExe, verifica, true);
+                string produttoriMac = null;
+                try { produttoriMac = Esecutore.LeggiRisorsa("produttori-mac.txt.gz"); }
+                catch (Exception) { produttoriMac = null; }
+                return Esecutore.Esegui(modulo, interfaccia, radice, percorsoExe, verifica, true, produttoriMac);
             }
             catch (Exception ex)
             {
