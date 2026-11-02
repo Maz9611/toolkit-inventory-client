@@ -16,7 +16,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Strumenti di test (Pester 5 e PSScriptAnalyzer)
         shell: powershell
@@ -51,7 +51,7 @@ jobs:
 
       - name: Carica l'exe da firmare
         id: da-firmare
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ToolkitHelpDesk-non-firmato
           path: ToolkitHelpDesk.exe
@@ -62,7 +62,7 @@ jobs:
       # SIGNPATH_PROJECT_SLUG e SIGNPATH_SIGNING_POLICY_SLUG.
       - name: Firma con SignPath
         if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' && github.event_name != 'pull_request' }}
-        uses: signpath/github-action-submit-signing-request@v1
+        uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -91,7 +91,7 @@ jobs:
           Compress-Archive -Path $completo -DestinationPath .\dist\helpdesk-toolkit.zip
 
       - name: Carica i pacchetti
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: pacchetti
           path: dist/*.zip
