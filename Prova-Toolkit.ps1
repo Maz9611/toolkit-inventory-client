@@ -33,8 +33,10 @@ try { $sonoAmministratore = (New-Object Security.Principal.WindowsPrincipal([Sec
 catch { $sonoAmministratore = $false }
 if (-not $sonoAmministratore -and -not $NonChiedereAmministratore -and [Environment]::UserInteractive) {
     Write-Host ''
-    Write-Host ' Da amministratore la prova legge anche SMART dei dischi, TPM e BitLocker.' -ForegroundColor Cyan
-    $scelta = Read-Host ' Ripartire come amministratore? (N = prova da utente normale) [S/n]'
+    Write-Host ' Eseguire la prova come amministratore?' -ForegroundColor Cyan
+    Write-Host ' Facendo questo permetterai la lettura dello stato SMART dei dischi, TPM e BitLocker.'
+    Write-Host ' In caso negativo funzionerà comunque, ma senza questi dati.'
+    $scelta = Read-Host ' Eseguire come amministratore? [S/n]'
     if ($scelta -notmatch '^[nN]') {
         try {
             $argomenti = @('-NoProfile', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $PSCommandPath))

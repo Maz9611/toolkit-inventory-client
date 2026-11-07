@@ -149,7 +149,7 @@ Ogni censimento sul PC scrive anche:
   stima TPM e BitLocker (dove non si può dirlo scrive "Da verificare") e non legge lo SMART. Per
   questo all'avvio il programma (e `Avvia-Prova.cmd`) propone di riaprirsi come amministratore:
   Windows chiede conferma o la password. Rispondendo No funziona lo stesso; nella finestra resta il
-  pulsante "Riavvia come amministratore". Si può disattivare con `ProponiAmministratore = $false` in
+  pulsante "Esegui come amministratore". Si può disattivare con `ProponiAmministratore = $false` in
   `config.psd1`.
 - La lettura dei dati del PC richiede pochi secondi: le parti lente (licenza di Windows, programmi
   installati, dischi) vengono lette in parallelo. `Avvia-Prova.cmd` mostra quanto ci mette ogni parte.

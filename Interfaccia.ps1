@@ -377,7 +377,7 @@ try {
     # SMART, TPM e BitLocker precisi solo con i diritti di amministratore: lo propone subito
     $proponi = [bool](& $script:Modulo { (Get-HDConfig).ProponiAmministratore })
     if (-not $Verifica -and -not $script:Amministratore -and $proponi) {
-        $domanda = "Avviare il toolkit come amministratore?`n`nCosì legge anche lo SMART dei dischi e, con precisione, TPM e BitLocker. Windows chiederà una conferma o la password di un amministratore.`n`nCon No il toolkit funziona lo stesso, con questi dati limitati."
+        $domanda = "Eseguire il toolkit come amministratore?`n`nFacendo questo permetterai la lettura dello stato SMART dei dischi, TPM e BitLocker.`n`nIn caso negativo funzionerà comunque, ma senza questi dati."
         $risposta = [System.Windows.Forms.MessageBox]::Show($domanda, 'Toolkit Help Desk', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
         if ($risposta -eq [System.Windows.Forms.DialogResult]::Yes -and (Start-ComeAmministratore)) { exit 0 }
     }
@@ -422,7 +422,7 @@ try {
     $alto.Controls.Add($pulsanteScegli, 2, 0)
     $alto.Controls.Add($pulsanteNuovo, 3, 0)
     $alto.Controls.Add($pulsanteApri, 4, 0)
-    $pulsanteAmministratore = New-Pulsante 'Riavvia come amministratore'
+    $pulsanteAmministratore = New-Pulsante 'Esegui come amministratore'
     $pulsanteAmministratore.Visible = -not $script:Amministratore
     $alto.Controls.Add($pulsanteAmministratore, 5, 0)
 
