@@ -257,6 +257,10 @@ Describe 'Produttore dal MAC e nomi mDNS' {
             Get-HDProduttoreMac '94-08-53-D6-B9-9A' | Should -Be 'Liteon Technology Corporation'
             Get-HDProduttoreMac '50284a9e5377' | Should -Be 'Intel Corporate'
             Get-HDProduttoreMac '52:A2:0A:B3:51:B0' | Should -BeLike 'MAC casuale*'
+            # blocchi piccoli dell'IEEE Registration Authority (MA-M e MA-S); blocco non assegnato: produttore ignoto
+            Get-HDProduttoreMac 'E8:FF:1E:C0:20:B3' | Should -Be 'Fracarro Radioindustrie Srl'
+            Get-HDProduttoreMac '00:1B:C5:00:10:22' | Should -Be 'OpenRB.com, Direct SIA'
+            Get-HDProduttoreMac 'E8:FF:1E:F0:00:01' | Should -Be ''
             Get-HDProduttoreMac '' | Should -Be ''
         }
     }

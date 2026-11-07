@@ -31,6 +31,9 @@ function Get-HDConfigPredefinita {
             AggiornamentiGiorniCritico    = 90
             FirmeAntivirusGiorni          = 7
             ScartoOrarioMinuti            = 5
+            RamMinimaGB                   = 8
+            BiosAnni                      = 6
+            CensimentoMesi                = 6
         }
     }
 }
@@ -388,6 +391,14 @@ h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: v
 .dati dd { margin: 0; text-align: right; color: var(--inchiostro); overflow-wrap: anywhere; }
 .voce { border-left: 3px solid var(--filo); padding: 2px 0 2px 16px; margin: 0 0 18px; break-inside: avoid; }
 .voce.v-critico { border-color: var(--critico); } .voce.v-attenzione { border-color: var(--attenzione); } .voce.v-errore { border-color: var(--errore); }
+.voce.v-info { border-color: var(--info); }
+ul.pc { list-style: none; margin: 8px 0 0; padding: 0; columns: 2; column-gap: 32px; }
+ul.pc li { break-inside: avoid; padding: 2px 0; }
+ul.pc b { color: var(--inchiostro); font-weight: 600; }
+.nota { color: var(--tenue); font-size: 13px; }
+.esito .sotto { color: var(--tenue); margin-top: 2px; }
+td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+td.data { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--tenue); }
 .voce .testa { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .voce .nome { font-weight: 600; color: var(--inchiostro); font-size: 15px; }
 .voce .stato { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; }
@@ -412,6 +423,7 @@ td .nota { color: var(--tenue); font-size: 13px; margin-top: 2px; }
   .pagina { margin: 0; padding: 24px 18px; border: 0; border-radius: 0; }
   .testata { flex-direction: column; align-items: flex-start; } .testata .quando { text-align: left; }
   .dati { grid-template-columns: 1fr; } td.area { display: none; } td.controllo { white-space: normal; }
+  ul.pc { columns: 1; } .tabella-larga { display: block; overflow-x: auto; }
 }
 @media print {
   body { background: #fff; font-size: 11.5px; } .pagina { margin: 0; padding: 0; border: 0; max-width: none; }

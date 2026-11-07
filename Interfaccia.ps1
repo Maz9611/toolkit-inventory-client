@@ -130,10 +130,16 @@ function New-Griglia {
 }
 
 function Set-Colonne {
-    param($Griglia, [string[]]$Titoli)
+    # -Pesi: larghezza relativa di ogni colonna (le griglie riempiono la finestra)
+    param($Griglia, [string[]]$Titoli, [int[]]$Pesi = @())
     $Griglia.Rows.Clear()
     $Griglia.Columns.Clear()
     foreach ($t in $Titoli) { [void]$Griglia.Columns.Add(($t -replace '\W', ''), $t) }
+    for ($i = 0; $i -lt $Pesi.Count -and $i -lt $Griglia.Columns.Count; $i++) { $Griglia.Columns[$i].FillWeight = $Pesi[$i] }
+}
+
+function Set-ColonneRete {
+    Set-Colonne $script:GrigliaRete @('IP', 'Nome', 'MAC', 'Produttore', 'Gruppo', 'Trovato con', 'Nel censimento') @(11, 19, 14, 24, 9, 15, 12)
 }
 
 function Set-Occupato {
@@ -163,6 +169,19 @@ function Confirm-FileCensimento {
     $f = New-Censimento -Cliente $cliente.Trim() -Confirm:$false
     Update-FileCensimento $f.FullName
     $true
+}
+
+function Show-RiepilogoCliente {
+    # Pagina del riepilogo del parco PC (cartella Report), aperta nel browser
+    if (-not $script:FileCensimento) { Show-Info 'Non c''è ancora un censimento: crealo con "Nuovo..."'; return }
+    Set-Occupato $true 'Preparazione del riepilogo per il cliente...'
+    try {
+        $f = Export-RiepilogoCensimento -Censimento $script:FileCensimento -Confirm:$false
+        $script:Stato.Text = 'Riepilogo creato: ' + $f.FullName
+        Start-Process -FilePath $f.FullName
+    }
+    catch { Show-Errore $_.Exception.Message }
+    finally { Set-Occupato $false }
 }
 
 function Get-TabellaAttuale {
@@ -199,8 +218,8 @@ function Show-DatiPc {
                 if ($c.Chiave -in 'Hostname', 'SerialNumber', 'Rilevato' -or -not [string]$r.Dettagli[$c.Chiave]) { continue }
                 $i = $script:GrigliaPc.Rows.Add([string]$c.Titolo, [string]$r.Dettagli[$c.Chiave])
                 $valore = [string]$r.Dettagli[$c.Chiave]
-                if (($c.Chiave -eq 'Windows11' -and $valore -match '^No') -or $valore -match 'GUASTO|^Non attivato') { $script:GrigliaPc.Rows[$i].DefaultCellStyle.BackColor = [System.Drawing.Color]::MistyRose }
-                elseif ($c.Chiave -eq 'Windows11' -and $valore -match '^Da verificare') { $script:GrigliaPc.Rows[$i].DefaultCellStyle.BackColor = [System.Drawing.Color]::LemonChiffon }
+                if (($c.Chiave -eq 'Windows11' -and $valore -match '^No') -or $valore -match 'GUASTO|^Non attivato|da sostituire') { $script:GrigliaPc.Rows[$i].DefaultCellStyle.BackColor = [System.Drawing.Color]::MistyRose }
+                elseif (($c.Chiave -eq 'Windows11' -and $valore -match '^Da verificare') -or $valore -match 'usurata|utente del PC') { $script:GrigliaPc.Rows[$i].DefaultCellStyle.BackColor = [System.Drawing.Color]::LemonChiffon }
             }
         }
         $attuali = @{}
@@ -275,7 +294,7 @@ function Start-Scansione {
         if ($script:CasellaRete.Text.Trim()) { $p.Rete = $script:CasellaRete.Text.Trim() }
         $s = Invoke-ScansioneRete @p
         $script:Scansione = $s
-        Set-Colonne $script:GrigliaRete @('IP', 'Nome', 'MAC', 'Produttore', 'Gruppo', 'Trovato con', 'Nel censimento')
+        Set-ColonneRete
         foreach ($d in $s.Dispositivi) { [void]$script:GrigliaRete.Rows.Add($d.IP, $d.Hostname, $d.MAC, $d.Produttore, $d.Gruppo, $d.Fonte, '') }
         Update-ColonnaNelCensimento
         $script:PulsanteAggiungi.Enabled = ($s.Dispositivi.Count -gt 0)
@@ -407,10 +426,10 @@ try {
     $alto.Dock = 'Top'
     $alto.Height = Get-Px 52
     $alto.Padding = New-Margini 8 8 8 4
-    $alto.ColumnCount = 6
+    $alto.ColumnCount = 7
     [void]$alto.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
     [void]$alto.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
-    1..4 | ForEach-Object { [void]$alto.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) }
+    1..5 | ForEach-Object { [void]$alto.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) }
     $script:CasellaFile = New-Object System.Windows.Forms.TextBox
     $script:CasellaFile.ReadOnly = $true
     $script:CasellaFile.Dock = 'Fill'
@@ -422,9 +441,11 @@ try {
     $alto.Controls.Add($pulsanteScegli, 2, 0)
     $alto.Controls.Add($pulsanteNuovo, 3, 0)
     $alto.Controls.Add($pulsanteApri, 4, 0)
+    $pulsanteRiepilogo = New-Pulsante 'Riepilogo per il cliente'
+    $alto.Controls.Add($pulsanteRiepilogo, 5, 0)
     $pulsanteAmministratore = New-Pulsante 'Esegui come amministratore'
     $pulsanteAmministratore.Visible = -not $script:Amministratore
-    $alto.Controls.Add($pulsanteAmministratore, 5, 0)
+    $alto.Controls.Add($pulsanteAmministratore, 6, 0)
 
     $schede = New-Object System.Windows.Forms.TabControl
     $schede.Dock = 'Fill'
@@ -486,7 +507,7 @@ try {
     foreach ($c in @((New-Etichetta 'Rete:'), $script:CasellaRete, $pulsanteScansiona, $script:PulsanteAggiungi, $pulsanteFileScanner)) { $comandiRete.Controls.Add($c) }
     $script:EtichettaScan = New-Etichetta 'Di solito la rete proposta è già quella giusta: premi "Scansiona la rete" (10-20 secondi per una /24). Per più reti separale con una virgola: 192.168.1.0/24, 192.168.2.0/24'
     $script:GrigliaRete = New-Griglia
-    Set-Colonne $script:GrigliaRete @('IP', 'Nome', 'MAC', 'Produttore', 'Gruppo', 'Trovato con', 'Nel censimento')
+    Set-ColonneRete
     $layoutRete.Controls.Add($comandiRete, 0, 0)
     $layoutRete.Controls.Add($script:EtichettaScan, 0, 1)
     $layoutRete.Controls.Add($script:GrigliaRete, 0, 2)
@@ -527,7 +548,7 @@ try {
     $finestra.Controls.Add($schede)
     $schede.BringToFront()
 
-    $script:Pulsanti = @($pulsanteScegli, $pulsanteNuovo, $pulsanteApri, $pulsanteLeggi, $pulsanteSalva, $pulsanteScansiona, $pulsanteFileScanner, $pulsanteVerifica, $pulsanteSpazio, $pulsanteCartellaReport, $script:PulsanteAggiungi, $script:PulsanteReport)
+    $script:Pulsanti = @($pulsanteScegli, $pulsanteNuovo, $pulsanteApri, $pulsanteRiepilogo, $pulsanteLeggi, $pulsanteSalva, $pulsanteScansiona, $pulsanteFileScanner, $pulsanteVerifica, $pulsanteSpazio, $pulsanteCartellaReport, $script:PulsanteAggiungi, $script:PulsanteReport)
 
     # Azioni
     $pulsanteScegli.Add_Click({
@@ -557,6 +578,7 @@ try {
             }
             else { Show-Info 'Non c''è ancora un censimento: crealo con "Nuovo..."' }
         })
+    $pulsanteRiepilogo.Add_Click({ Show-RiepilogoCliente })
     $pulsanteAmministratore.Add_Click({ if (Start-ComeAmministratore) { $script:Finestra.Close() } })
     $pulsanteLeggi.Add_Click({ Show-DatiPc })
     $pulsanteSalva.Add_Click({ Save-DatiPc })

@@ -21,4 +21,4 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Dati: IEEE MA-L (OUI) Public Listing, tramite il pacchetto npm oui-data 2.1.40 (https://github.com/silverwind/oui-data).
+Dati: IEEE MA-L (OUI), MA-M e MA-S Public Listing, tramite il pacchetto npm oui-data 2.1.55 (https://github.com/silverwind/oui-data).

@@ -361,7 +361,7 @@ function ConvertTo-HDRecordCensimento {
         $schedaMadre = [string]$Grezzo.SchedaMadre.Product
         if (-not $produttore) { $produttore = ConvertTo-HDProduttore ([string]$Grezzo.SchedaMadre.Manufacturer) }
     }
-    $extra = ConvertTo-HDDettagliPC -Grezzo $Grezzo -SistemaOperativo $caption -Server ($tipo -eq $TipoServer -or $caption -match '(?i)server') -Processore ([string](@($cpu) | Select-Object -First 1).Name)
+    $extra = ConvertTo-HDDettagliPC -Grezzo $Grezzo -SistemaOperativo $caption -Server ($tipo -eq $TipoServer -or $caption -match '(?i)server') -Processore ([string](@($cpu) | Select-Object -First 1).Name) -Utente $utente.Nome
 
     [pscustomobject]@{
         PSTypeName        = 'HelpDesk.Censimento'

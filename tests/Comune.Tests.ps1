@@ -123,7 +123,7 @@ Describe 'Modulo' {
 
     It 'esporta solo i comandi pubblici' {
         $attesi = 'Add-PCCensimento', 'Get-CartelleGrandi', 'Get-InventarioPC', 'Get-SpazioDisco', 'Get-StimaPulizia',
-        'Import-ScansioneRete', 'Invoke-ScansioneRete', 'New-Censimento', 'Sync-Censimento', 'Test-Postazione'
+        'Import-ScansioneRete', 'Invoke-ScansioneRete', 'New-Censimento', 'Sync-Censimento', 'Test-Postazione', 'Export-RiepilogoCensimento'
         $funzioni = @(Get-Command -Module HelpDeskToolkit -CommandType Function | ForEach-Object { $_.Name } | Sort-Object)
         $funzioni | Should -Be ($attesi | Sort-Object)
     }

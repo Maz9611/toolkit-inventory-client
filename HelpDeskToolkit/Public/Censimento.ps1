@@ -11,13 +11,13 @@ $script:HDRaccoltaCensimento = {
     # Le letture lente partono subito in parallelo (runspace separati, testo autonomo) mentre
     # il resto si legge qui; se il parallelo non è disponibile si fanno in fila alla fine.
     $lente = [ordered]@{
-        Licenza   = {
+        Licenza        = {
             $t = [System.Diagnostics.Stopwatch]::StartNew()
             $r = $null
             try { $r = @(Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "ApplicationID='55c92734-d682-4d71-983e-d6ec3f16059f' AND PartialProductKey IS NOT NULL" -ErrorAction Stop | Select-Object Name, Description, LicenseStatus) } catch { $r = $null }
             @{ Licenza = $r; Ms = $t.ElapsedMilliseconds }
         }
-        Programmi = {
+        Programmi      = {
             $t = [System.Diagnostics.Stopwatch]::StartNew()
             $chiavi = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
             $p = $null
@@ -26,7 +26,7 @@ $script:HDRaccoltaCensimento = {
             try { $o = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction Stop | Select-Object ProductReleaseIds, VersionToReport } catch { $o = $null }
             @{ Programmi = $p; OfficeC2R = $o; Ms = $t.ElapsedMilliseconds }
         }
-        Dischi    = {
+        Dischi         = {
             $t = [System.Diagnostics.Stopwatch]::StartNew()
             $r = @{ DischiFisici = $null; Smart = $null; SmartPrevisione = $null; DischiWin32 = $null }
             $fisici = $null
@@ -53,6 +53,33 @@ $script:HDRaccoltaCensimento = {
             try { $r.SmartPrevisione = @(Get-CimInstance -Namespace 'root/wmi' -ClassName MSStorageDriver_FailurePredictStatus -ErrorAction Stop | Select-Object InstanceName, PredictFailure) } catch { $r.SmartPrevisione = $null }
             $r.Ms = $t.ElapsedMilliseconds
             $r
+        }
+        Aggiornamenti  = {
+            $t = [System.Diagnostics.Stopwatch]::StartNew()
+            $q = $null
+            try { $q = @(Get-CimInstance -ClassName Win32_QuickFixEngineering -ErrorAction Stop | Select-Object HotFixID, InstalledOn) } catch { $q = $null }
+            @{ Qfe = $q; Ms = $t.ElapsedMilliseconds }
+        }
+        Amministratori = {
+            # Membri del gruppo Administrators (nome localizzato: si parte dal SID). Lo legge anche un utente normale.
+            $t = [System.Diagnostics.Stopwatch]::StartNew()
+            $r = $null
+            try {
+                $nomeGruppo = (New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')).Translate([System.Security.Principal.NTAccount]).Value.Split('\')[-1]
+                $gruppo = [ADSI]('WinNT://{0}/{1},group' -f $env:COMPUTERNAME, $nomeGruppo)
+                $r = @(@($gruppo.Invoke('Members')) | ForEach-Object {
+                        $percorso = [string]$_.GetType().InvokeMember('AdsPath', 'GetProperty', $null, $_, $null)
+                        $classe = [string]$_.GetType().InvokeMember('Class', 'GetProperty', $null, $_, $null)
+                        $disattivato = $null
+                        # account locale (WinNT://GRUPPO/PC/nome): si legge anche se è disattivato
+                        if ($classe -eq 'User' -and @($percorso.Split('/') | Where-Object { $_ }).Count -ge 4) {
+                            try { $disattivato = (([int]$_.GetType().InvokeMember('UserFlags', 'GetProperty', $null, $_, $null) -band 2) -ne 0) } catch { $disattivato = $null }
+                        }
+                        [pscustomobject]@{ Percorso = $percorso; Classe = $classe; Disattivato = $disattivato }
+                    })
+            }
+            catch { $r = $null }
+            @{ Amministratori = $r; Ms = $t.ElapsedMilliseconds }
         }
     }
     $inCorso = @{}
@@ -118,6 +145,17 @@ $script:HDRaccoltaCensimento = {
         @(Get-CimInstance -Namespace 'root/wmi' -ClassName WmiMonitorID -ErrorAction Stop | ForEach-Object {
                 [pscustomobject]@{ Produttore = (& $testo $_.ManufacturerName); Nome = (& $testo $_.UserFriendlyName); Seriale = (& $testo $_.SerialNumberID); Anno = $_.YearOfManufacture }
             })
+    }
+    $g.Batteria = Leggi {
+        # Salute della batteria dei portatili: capacità a piena carica rispetto a quella di progetto
+        $presenti = @(Get-CimInstance -ClassName Win32_Battery -ErrorAction Stop | Select-Object Name)
+        $progetto = $null
+        $piena = $null
+        if ($presenti.Count -gt 0) {
+            try { $progetto = @(Get-CimInstance -Namespace 'root/wmi' -ClassName BatteryStaticData -ErrorAction Stop | Select-Object InstanceName, DesignedCapacity) } catch { $progetto = $null }
+            try { $piena = @(Get-CimInstance -Namespace 'root/wmi' -ClassName BatteryFullChargedCapacity -ErrorAction Stop | Select-Object InstanceName, FullChargedCapacity) } catch { $piena = $null }
+        }
+        [pscustomobject]@{ Presenti = $presenti.Count; Progetto = $progetto; Piena = $piena }
     }
     $g.Stampanti = Leggi { @(Get-CimInstance -ClassName Win32_Printer -ErrorAction Stop | Select-Object Name, DriverName, PortName, Network, Default) }
     $g.Antivirus = Leggi { @(Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName AntiVirusProduct -ErrorAction Stop | Select-Object displayName, productState) }
@@ -243,16 +281,16 @@ function Get-HDModelloCensimento {
 }
 
 function Get-HDFogliPrincipali {
-    # I fogli in cui cercare il censimento: tutti tranne Dettagli, Software e DatiSoftware
+    # I fogli in cui cercare il censimento: tutti tranne quelli del toolkit (Dettagli, Software, Riepilogo...)
     param([object[]]$Fogli)
-    $nostri = @($script:HDFoglioDettagli, $script:HDFoglioSoftware, $script:HDFoglioDatiSoftware)
+    $nostri = @($script:HDFoglioDettagli, $script:HDFoglioSoftware, $script:HDFoglioDatiSoftware, $script:HDFoglioRiepilogo, $script:HDFoglioStorico)
     $principali = @($Fogli | Where-Object { $nostri -notcontains $_.Nome })
     if ($principali.Count -eq 0) { return $Fogli }
     $principali
 }
 
 function Get-HDTabellaCensimento {
-    # Foglio principale del censimento, più i fogli Dettagli, DatiSoftware e (stato del) Software
+    # Foglio principale del censimento, più i fogli Dettagli, DatiSoftware, Storico e (stato di) Software e Riepilogo
     param([Parameter(Mandatory)][string]$Percorso)
     $p = Resolve-HDPercorso $Percorso
     if ([System.IO.Path]::GetExtension($p) -ne '.xlsx') {
@@ -264,6 +302,8 @@ function Get-HDTabellaCensimento {
     $t | Add-Member -NotePropertyName Dettagli -NotePropertyValue (ConvertTo-HDTabellaFoglio -Fogli $fogli -Nome $script:HDFoglioDettagli -Colonne $script:HDColonneDettagli)
     $t | Add-Member -NotePropertyName DatiSoftware -NotePropertyValue (ConvertTo-HDTabellaFoglio -Fogli $fogli -Nome $script:HDFoglioDatiSoftware -Colonne $script:HDColonneDatiSoftware -Nascosto)
     $t | Add-Member -NotePropertyName Software -NotePropertyValue (Get-HDStatoFoglioSoftware $fogli)
+    $t | Add-Member -NotePropertyName Storico -NotePropertyValue (ConvertTo-HDTabellaFoglio -Fogli $fogli -Nome $script:HDFoglioStorico -Colonne $script:HDColonneStorico)
+    $t | Add-Member -NotePropertyName Riepilogo -NotePropertyValue (Get-HDStatoFoglioRiscritto -Fogli $fogli -Nome $script:HDFoglioRiepilogo -Colonne $script:HDColonneRiepilogo -Titolo 'Da controllare')
     $t
 }
 
@@ -317,6 +357,11 @@ function Save-HDCensimento {
         })
     if ($lista.Count -eq 0 -and $altri.Count -eq 0) { return [pscustomobject]@{ Scritto = $false; Backup = $null; Saltate = @() } }
     $cfg = Get-HDConfig
+    # Riepilogo ricalcolato dai dati già aggiornati in memoria (foglio principale e Dettagli)
+    if ($Tabella.PSObject.Properties['Riepilogo'] -and $Tabella.Riepilogo -and -not $Tabella.Riepilogo.Conflitto) {
+        $righeRiepilogo = @(Get-HDRigheRiepilogoTabella -Tabella $Tabella -Soglie $cfg.Soglie)
+        $altri += [pscustomobject]@{ Tabella = $Tabella.Riepilogo; Lista = @(); Riscrivi = $righeRiepilogo }
+    }
     $p = $Tabella.Percorso
     $cartella = Split-Path -Parent $p
     $nome = [System.IO.Path]::GetFileNameWithoutExtension($p)
@@ -451,7 +496,8 @@ function Add-HDExtraATabelle {
     $modDettagli = @{}
     $modDati = @{}
     $riepilogo = @{}
-    foreach ($nome in 'Dettagli', 'Software', 'DatiSoftware') {
+    foreach ($nome in 'Dettagli', 'Software', 'DatiSoftware', 'Storico', 'Riepilogo') {
+        if (-not $Tabella.PSObject.Properties[$nome]) { continue }
         $t = $Tabella.$nome
         if ($t -and $t.Conflitto) { Write-Warning ("Nell'Excel c'è già un foglio '{0}' con un altro contenuto: quei dati non vengono scritti (rinomina il tuo foglio per averli)." -f $t.Nome) }
     }
@@ -504,11 +550,21 @@ function Invoke-HDSincronizzazione {
         })
     if ($rilevazioni.Count -eq 0) { return $vuoto }
     $tabella = Get-HDTabellaCensimento $FileCensimento
+    $foto = Get-HDFotoCensimento $tabella
     $applicate = Add-HDRilevazioniATabella -Tabella $tabella -Rilevazioni $rilevazioni
     # colonne arrivate con le versioni nuove (es. BitLocker): si aggiungono in fondo se servono
     $daAggiungere = @($tabella.DaAggiungere | Where-Object { $k = $_.Chiave; @($rilevazioni | Where-Object { [string]$_.Dati.$k }).Count -gt 0 })
     if ($daAggiungere.Count -gt 0) { Add-HDColonneMancanti -Tabella $tabella -Colonne $daAggiungere -Modifiche $applicate.Modifiche }
     $extra = Add-HDExtraATabelle -Tabella $tabella -Rilevazioni $rilevazioni
+    # Storico: cosa è cambiato rispetto a prima (hardware, utente, sistema, programmi...)
+    if ($tabella.Storico -and -not $tabella.Storico.Conflitto) {
+        $cambiamenti = @(Get-HDCambiamenti -Foto $foto -Tabella $tabella)
+        if ($cambiamenti.Count -gt 0) {
+            $modStorico = @{}
+            Add-HDStoricoATabella -Tabella $tabella.Storico -Voci $cambiamenti -Modifiche $modStorico
+            $extra.Extra = @($extra.Extra) + @(@{ Tabella = $tabella.Storico; Modifiche = $modStorico })
+        }
+    }
     try { $s = Save-HDCensimento -Tabella $tabella -Modifiche $applicate.Modifiche -Extra $extra.Extra }
     catch { return [pscustomobject]@{ Esiti = $applicate.Esiti; Scritto = $false; Backup = $null; Saltate = @(); Errore = $_.Exception.Message; Inserite = 0; Software = $extra.Riepilogo } }
     $archivio = Split-Path -Parent $cartella
@@ -557,15 +613,24 @@ function New-Censimento {
         for ($i = 0; $i -lt $script:HDColonneCensimento.Count; $i++) { $indice[$script:HDColonneCensimento[$i].Chiave] = $i + 1 }
         $dettagli = @{}
         for ($i = 0; $i -lt $script:HDColonneDettagli.Count; $i++) { $dettagli[$script:HDColonneDettagli[$i].Chiave] = $i + 1 }
+        # aggiornamenti: Excel confronta la data (gg/mm/aaaa all'inizio della cella) con oggi
+        $giorniAggiornamenti = 45
+        try { $giorniAggiornamenti = [int](Get-HDConfig).Soglie.AggiornamentiGiorniAttenzione } catch { $giorniAggiornamenti = 45 }
+        if ($giorniAggiornamenti -le 0) { $giorniAggiornamenti = 45 }
         $altri = @(
+            @{ Nome = $script:HDFoglioRiepilogo; Colonne = $script:HDColonneRiepilogo; Evidenzia = @{ 1 = '{0}="Urgente"' } }
             @{ Nome = $script:HDFoglioDettagli; Colonne = $script:HDColonneDettagli; Evidenzia = @{
                     $dettagli['Windows11']          = 'LEFT({0},3)="No:"'
                     $dettagli['DischiFisici']       = 'OR(ISNUMBER(SEARCH("GUASTO",{0})),ISNUMBER(SEARCH("ATTENZIONE",{0})))'
                     $dettagli['Smart']              = 'OR(ISNUMBER(SEARCH("GUASTO",{0})),ISNUMBER(SEARCH("ATTENZIONE",{0})))'
+                    $dettagli['Batteria']           = 'ISNUMBER(SEARCH("da sostituire",{0}))'
                     $dettagli['AttivazioneWindows'] = 'LEFT({0},12)="Non attivato"'
+                    $dettagli['Aggiornamento']      = ('IFERROR(TODAY()-DATE(VALUE(MID({{0}},7,4)),VALUE(MID({{0}},4,2)),VALUE(LEFT({{0}},2)))>{0},FALSE)' -f $giorniAggiornamenti)
+                    $dettagli['Amministratori']     = 'ISNUMBER(SEARCH("utente del PC",{0}))'
                 }
             }
             @{ Nome = $script:HDFoglioSoftware; Colonne = $script:HDColonneSoftware }
+            @{ Nome = $script:HDFoglioStorico; Colonne = $script:HDColonneStorico }
             @{ Nome = $script:HDFoglioDatiSoftware; Colonne = $script:HDColonneDatiSoftware; Nascosto = $true }
         )
         New-HDXlsx -Percorso $p -NomeFoglio 'Censimento' -Colonne $script:HDColonneCensimento `

@@ -136,14 +136,14 @@ Invoke-Collaudo 'Dati di questo PC per il censimento' {
     Assert-Vero ($null -ne $r.Dettagli) 'Dati del foglio Dettagli non raccolti'
     ''
     'Foglio Dettagli:'
-    foreach ($k in 'Windows11', 'TPM', 'SecureBoot', 'Avvio', 'DischiFisici', 'Smart', 'Bios', 'Monitor', 'Stampanti', 'Office', 'AttivazioneWindows', 'Antivirus', 'AccessoRemoto', 'Programmi') { '{0,-19}{1}' -f $k, $r.Dettagli[$k] }
-    $vuotiDettagli = @('TPM', 'Avvio', 'DischiFisici', 'Bios', 'AttivazioneWindows', 'Programmi' | Where-Object { -not $r.Dettagli[$_] })
+    foreach ($k in 'Windows11', 'TPM', 'SecureBoot', 'Avvio', 'DischiFisici', 'Smart', 'Batteria', 'Bios', 'Monitor', 'Stampanti', 'Office', 'AttivazioneWindows', 'Aggiornamento', 'Antivirus', 'Amministratori', 'AccessoRemoto', 'Programmi') { '{0,-19}{1}' -f $k, $r.Dettagli[$k] }
+    $vuotiDettagli = @('TPM', 'Avvio', 'DischiFisici', 'Batteria', 'Bios', 'AttivazioneWindows', 'Aggiornamento', 'Amministratori', 'Programmi' | Where-Object { -not $r.Dettagli[$_] })
     if ($vuotiDettagli.Count -gt 0) { 'Dettagli vuoti (controlla se è normale su questo PC): ' + ($vuotiDettagli -join ', ') }
     'Programmi trovati: {0} (primi 5: {1})' -f @($r.Software).Count, ((@($r.Software) | Select-Object -First 5 | ForEach-Object { $_.Nome }) -join '; ')
     if (-not $r.Dettagli['Smart']) { 'SMART non letto: è normale da utente normale, rifai la prova come amministratore.' }
     if ($r.TempiRaccolta) {
         $t = $r.TempiRaccolta
-        'Tempo di lettura: {0:N1} s in tutto (in parallelo: licenza {1:N1} s, programmi {2:N1} s, dischi {3:N1} s; il resto {4:N1} s)' -f ($t.Totale / 1000), ($t.Licenza / 1000), ($t.Programmi / 1000), ($t.Dischi / 1000), ($t.Principale / 1000)
+        'Tempo di lettura: {0:N1} s in tutto (in parallelo: licenza {1:N1} s, programmi {2:N1} s, dischi {3:N1} s, aggiornamenti {4:N1} s, amministratori {5:N1} s; il resto {6:N1} s)' -f ($t.Totale / 1000), ($t.Licenza / 1000), ($t.Programmi / 1000), ($t.Dischi / 1000), ($t.Aggiornamenti / 1000), ($t.Amministratori / 1000), ($t.Principale / 1000)
     }
 }
 
@@ -168,6 +168,11 @@ Invoke-Collaudo 'Censimento su un Excel di prova (scansione + PC)' {
     $riga = $tabella.Righe | Where-Object { $_.Valori['Hostname'] -eq $script:pc.Hostname } | Select-Object -First 1
     Assert-Vero ($riga.Valori['Locazione'] -eq 'Banco prova') 'Locazione non scritta'
     Assert-Vero ($tabella.Dettagli.Esiste -and $tabella.Dettagli.Righe.Count -ge 1) 'Foglio Dettagli non scritto'
+    Assert-Vero ($tabella.Riepilogo.Esiste -and -not $tabella.Riepilogo.Conflitto) 'Foglio Riepilogo non scritto'
+    Assert-Vero ($tabella.Storico.Esiste -and $tabella.Storico.Righe.Count -ge 1) 'Foglio Storico non scritto (atteso "Primo censimento")'
+    $pagina = Export-RiepilogoCensimento -Censimento $import.Censimento -Confirm:$false
+    Assert-Vero ($pagina -and (Test-Path -LiteralPath $pagina.FullName)) 'Riepilogo per il cliente non creato'
+    'Riepilogo per il cliente: {0}' -f $pagina.FullName
     Assert-Vero ($riga.Valori['SerialNumber'] -eq $script:pc.SerialNumber -or -not $script:pc.SerialNumber) 'Numero di serie non scritto'
     $script:excelProva = $import.Censimento
     'Excel di prova: {0}' -f $import.Censimento

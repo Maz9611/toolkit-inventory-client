@@ -31,7 +31,7 @@
         BackupDaTenere   = 30
     }
 
-    # Soglie della verifica postazione e dello spazio disco
+    # Soglie della verifica postazione, dello spazio disco e del riepilogo del censimento
     Soglie         = @{
         DiscoAttenzionePct            = 10   # ATTENZIONE sotto il 10% libero...
         DiscoAttenzioneGB             = 20   # ...o sotto i 20 GB liberi
@@ -43,5 +43,8 @@
         AggiornamentiGiorniCritico    = 90
         FirmeAntivirusGiorni          = 7
         ScartoOrarioMinuti            = 5
+        RamMinimaGB                   = 8    # riepilogo: "Poca memoria RAM" sotto questa quantità
+        BiosAnni                      = 6    # riepilogo: "BIOS fermo da anni" oltre questa età
+        CensimentoMesi                = 6    # riepilogo: "PC non censiti da tempo" oltre questi mesi
     }
 }

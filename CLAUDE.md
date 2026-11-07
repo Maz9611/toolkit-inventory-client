@@ -54,6 +54,19 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
   per nome (`$script:HDCampiScansione`). Se arriva un export reale diverso, aggiungere i sinonimi
   e un test in `tests/Scansione.Tests.ps1`.
 
+## Fogli Riepilogo e Storico (Private/CensimentoRiepilogo.ps1, Public/Riepilogo.ps1)
+
+- Riepilogo: una riga per punto da sistemare (`Get-HDPuntiRiepilogo`, pura: controlli come scriptblock
+  su `Get-HDPcCensiti` = righe del foglio principale + Dettagli). Riscritto a ogni `Save-HDCensimento`
+  dai dati già aggiornati in memoria (`Get-HDRigheRiepilogoTabella`); stato con `Get-HDStatoFoglioRiscritto`
+  (come Software). Date di fine supporto di Windows in `$script:HDFineSupportoWindows11` (da aggiornare
+  quando escono versioni nuove); soglie in `Soglie` di config (RamMinimaGB, BiosAnni, CensimentoMesi).
+- Storico: una riga per cambiamento, aggiunta in fondo. `Invoke-HDSincronizzazione` fa
+  `Get-HDFotoCensimento` prima di applicare i censimenti e `Get-HDCambiamenti` dopo; campi seguiti in
+  `$script:HDCampiStorico*` (niente IP, spazio libero, build, firme antivirus: cambiano troppo spesso).
+- `Export-RiepilogoCensimento`: pagina HTML per il cliente in Report (stesso CSS del report di verifica).
+  Mai "la tua azienda" o simili nei testi per il cliente.
+
 ## Fogli Dettagli e Software (Private/CensimentoDettagli.ps1)
 
 - Colonne in `$script:HDColonneDettagli` e `$script:HDColonneSoftware`; i dati grezzi in più li raccoglie
@@ -69,6 +82,11 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
   crea i fogli mancanti negli Excel esistenti (aggiunge anche gli stili). Un foglio con lo stesso
   nome ma altro contenuto (`Conflitto`) non si tocca.
 - Nei cicli di lettura e scrittura dell'Excel niente chiamate di funzione per cella (fogli grandi).
+- Batteria (root/wmi, capacità attuale / di progetto), amministratori locali (ADSI WinNT sul gruppo
+  S-1-5-32-544, letto anche da utente normale) e ultimo aggiornamento (Win32_QuickFixEngineering) sono
+  nel foglio Dettagli; amministratori e aggiornamenti tra le letture lente in parallelo.
+- PowerShell 7.6 ha un difetto: `@($lista)` su una `List[object]` lancia "Argument types do not match".
+  Usa `@($lista | Where-Object { $_ })` o `.ToArray()`.
 
 ## Scansione di rete e finestra
 
@@ -78,8 +96,9 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
   da una porta qualsiasi: i dispositivi rispondono in unicast ("legacy unicast"), quindi niente ascolto
   sulla 5353 (avviso del firewall). I nomi vengono dai record A e dai PTR inversi (`Get-HDNomiDaMulticast`).
   I client UDP si creano con `New-HDClientUdp` (su Windows disattiva SIO_UDP_CONNRESET). Produttore dal MAC con
-  `HelpDeskToolkit/Dati/produttori-mac.txt.gz` (OUI<TAB>nome, da oui-data/IEEE; nell'exe è una risorsa
-  passata al modulo come `$script:HDTestoProduttoriMac`).
+  `HelpDeskToolkit/Dati/produttori-mac.txt.gz` (prefisso di 6, 7 o 9 cifre<TAB>nome: MA-L, MA-M e MA-S da
+  oui-data/IEEE; si cerca prima il blocco più piccolo; nell'exe è una risorsa passata al modulo come
+  `$script:HDTestoProduttoriMac`).
 
 - `Private/ScansioneRete.ps1`: calcoli sulle reti, lettura ARP e NetBIOS (funzioni pure, testate) e le
   chiamate di rete vere (`Invoke-HDPingParallelo`, `Get-HDViciniArp`, `Resolve-HDNetbiosRemoto`,

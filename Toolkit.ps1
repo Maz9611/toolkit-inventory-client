@@ -59,6 +59,7 @@ do {
     Write-Host '  4  Nuovo file di censimento'
     Write-Host '  5  Apri il censimento in Excel'
     Write-Host '  6  Inserisci le rilevazioni rimaste in sospeso'
+    Write-Host '  R  Riepilogo per il cliente (pagina da stampare o salvare in PDF)'
     Write-Host ''
     Write-Host '  VERIFICHE' -ForegroundColor White
     Write-Host '  7  Verifica rapida della postazione (prima dell''intervento)'
@@ -119,6 +120,11 @@ do {
                 Write-Host '  Nota: il toolkit non cancella nulla. Pulisci a mano con Pulizia disco, dopo aver chiesto all''utente.' -ForegroundColor DarkGray
             }
             '9' { Invoke-Item -LiteralPath (& $modulo { Get-HDCartella -Tipo Report }) }
+            'R' {
+                $f = Export-RiepilogoCensimento -Confirm:$false
+                Write-Host "  Creato: $($f.FullName)" -ForegroundColor Green
+                Invoke-Item -LiteralPath $f.FullName
+            }
             'A' {
                 $exe = (Get-Process -Id $PID).Path
                 Start-Process -FilePath $exe -Verb RunAs -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $PSCommandPath))

@@ -5,12 +5,16 @@ integrata), verifica rapida della postazione e spazio disco.
 
 > *English summary: a portable help desk toolkit for Windows (interface in Italian). It builds a PC
 > inventory in an Excel workbook (hardware, OS, network, users), discovers devices on the local
-> network (ping, ARP, NetBIOS, DNS) and runs quick workstation checks. It only reads from the PCs:
+> network (ping, ARP, NetBIOS, DNS, mDNS) and runs quick workstation checks. It only reads from the PCs:
 > it writes nothing but its own Excel files and reports, next to the program. Single portable
 > `ToolkitHelpDesk.exe` built from the PowerShell sources in this repository. MIT license.*
 
 **Scarica:** l'ultima versione è nelle [Releases](../../releases): `ToolkitHelpDesk.zip` contiene il
 programma, `helpdesk-toolkit.zip` il pacchetto completo con la prova.
+
+**Download ufficiale:** solo dalle Releases di questo repository. Copie arrivate da altri siti, fork
+o allegati non sono ufficiali e potrebbero essere state modificate: ogni release riporta l'impronta
+SHA256 dell'exe, per controllare che il file sia proprio quello (come fare: [SECURITY.md](SECURITY.md)).
 
 > **Sui PC non cambia niente**: legge soltanto. Scrive solo i suoi file (l'Excel del censimento e i
 > report) nella sua cartella, cioè sulla chiavetta.
@@ -110,7 +114,33 @@ le domande nella finestra nera); **`Importa-Scansione.cmd`** importa un file di 
 | BitLocker | `C: attiva`, `C: attiva; D: non attiva`, `C: sospesa`... Negli Excel di prima la colonna si aggiunge da sola in fondo |
 | **Locazione** | la scrivi tu |
 
-### Gli altri due fogli: Dettagli e Software
+### Gli altri fogli: Riepilogo, Dettagli, Software e Storico
+
+**Riepilogo**: cosa c'è da sistemare nel parco PC, una riga per punto, dai più urgenti. Si
+**ricalcola da solo a ogni scrittura dell'Excel**, quindi non scriverci dentro.
+
+| Priorità | Da controllare | N. PC | PC | Cosa fare |
+|---|---|---|---|---|
+| Urgente | Windows non riceve più aggiornamenti di sicurezza | 3 | `PC-01 (Windows 10, compatibile con Windows 11), ...` | passare a Windows 11 o sostituire |
+| Urgente | Dischi a rischio di guasto | 1 | `PC-07` | copia dei dati e sostituzione |
+| Da pianificare | BitLocker non attivo | 4 | `PC-02 (portatile), ...` | attivarlo, prima sui portatili |
+| Da sapere | Programmi di accesso remoto | 2 | `PC-03 (TeamViewer), ...` | verificare che siano autorizzati |
+
+I punti controllati: dischi a rischio, Windows senza aggiornamenti di sicurezza (Windows 10 e versioni
+vecchie di Windows 11), antivirus spento, Cynet mancante (solo dove Cynet è in uso), disco pieno o
+quasi, Windows non attivato, aggiornamenti in ritardo, BitLocker spento, utente amministratore del
+PC, Office non più supportato, batteria usurata, poca RAM, programmi di accesso remoto, BIOS fermo da
+anni, PC non censiti da mesi. Le soglie sono in `config.psd1`.
+
+**Riepilogo per il cliente**: il pulsante "Riepilogo per il cliente" (o `R` nel menu testuale) crea
+una pagina da stampare o salvare in PDF, nella cartella `Report`: gli stessi punti con i PC
+interessati e cosa fare, il parco PC in numeri, i cambiamenti degli ultimi 90 giorni e l'elenco dei
+PC.
+
+**Storico**: una riga per ogni cambiamento trovato da un censimento all'altro: primo censimento di
+un PC, RAM, disco, processore, sistema operativo, utente, BitLocker, monitor, Office, antivirus,
+amministratori, programmi installati e disinstallati. Le righe si aggiungono in fondo, quelle vecchie
+restano.
 
 Ogni censimento sul PC scrive anche:
 
@@ -122,12 +152,15 @@ Ogni censimento sul PC scrive anche:
 | TPM, Secure Boot, Avvio | `2.0`, `Attivo` / `Disattivato`, `UEFI` / `BIOS` |
 | Dischi fisici | `Samsung SSD 980 500GB (SSD NVMe, 500 GB, OK)` (in rosso `ATTENZIONE` e `GUASTO`) |
 | SMART dei dischi | `Samsung SSD 980 500GB: usura 3%, 38 °C, 2.140 ore, nessun errore`; in rosso errori e `GUASTO PREVISTO`. **Solo avviando come amministratore** (altrimenti lo dice, senza cancellare quello già letto) |
+| Batteria | nei portatili quanto tiene rispetto a quando era nuova: `78% (39 di 50 Wh)`, `44% (22 di 50 Wh) - da sostituire` (in rosso); nei fissi `Nessuna` |
 | BIOS | versione e data, che dà anche un'idea dell'età del PC |
 | Monitor | modello e numero di serie: `DELL P2419H (S/N CFV9N93, 2020)` |
 | Stampanti | stampanti installate (non quelle virtuali come PDF e XPS), con l'IP se di rete |
 | Office | `Microsoft 365 Apps for business (16.0.17126)`, `Office Home and Business 2019`, `Non installato` |
 | Attivazione Windows | `Attivato (OEM, chiave nel BIOS)`, `Attivato (Volume KMS)`, `Non attivato` |
+| Ultimo aggiornamento | aggiornamento di Windows installato più di recente: `14/10/2026 (KB5066835)` (in rosso se più vecchio di 45 giorni) |
 | Antivirus | `Windows Defender (attivo, aggiornato)` |
+| Amministratori locali | chi ha i diritti di amministratore: `Administrator (disattivato), STUDIO\Domain Admins, mario (utente del PC)` (in rosso se c'è l'utente del PC) |
 | Accesso remoto | `TeamViewer; AnyDesk; Desktop remoto di Windows attivo`, oppure `Nessuno` |
 | Programmi installati, Rilevato il | quanti programmi e quando è stato fatto il censimento |
 
@@ -147,8 +180,8 @@ Ogni censimento sul PC scrive anche:
   PC): serve al toolkit per ricostruire il riepilogo, non cancellarlo.
 
 - Negli Excel creati con le versioni precedenti fogli e colonne nuove si aggiungono da soli al primo
-  censimento. Se hai già un tuo foglio chiamato "Dettagli" o "Software" con altro contenuto, il
-  toolkit non lo tocca e te lo segnala.
+  censimento. Se hai già un tuo foglio chiamato "Dettagli", "Software", "Riepilogo" o "Storico" con
+  altro contenuto, il toolkit non lo tocca e te lo segnala.
 - **Avviato come amministratore** legge TPM, BitLocker e SMART in modo preciso. Da utente normale
   stima TPM e BitLocker (dove non si può dirlo scrive "Da verificare") e non legge lo SMART. Per
   questo all'avvio il programma (e `Avvia-Prova.cmd`) propone di riaprirsi come amministratore:
@@ -224,6 +257,7 @@ Add-PCCensimento -Utilizzatore 'Mario Rossi' -Locazione 'Reception'
 Get-InventarioPC                                              # dati del PC, senza scrivere
 Import-ScansioneRete .\scansione.csv                          # file di Advanced IP Scanner
 Sync-Censimento                                               # dati rimasti in sospeso
+Export-RiepilogoCensimento -Apri                              # riepilogo per il cliente (HTML)
 Test-Postazione
 Get-SpazioDisco
 ```
@@ -248,15 +282,18 @@ Ogni comando ha la guida: `Get-Help Invoke-ScansioneRete -Full`. Quelli che scri
 
 ## Cosa è stato verificato e cosa no
 
-- **Test automatici:** ne passano 341 (Excel con più fogli, scansione anche su più reti, abbinamenti,
-  formati delle colonne, fogli Dettagli e Software, verifica postazione, motore dell'exe). A ogni
+- **Test automatici:** ne passano 376 (Excel con più fogli, scansione anche su più reti, abbinamenti,
+  formati delle colonne, fogli Dettagli, Software, Riepilogo e Storico, riepilogo per il cliente,
+  verifica postazione, motore dell'exe). A ogni
   modifica girano anche su Windows PowerShell 5.1 con GitHub Actions, che crea l'exe e lo avvia. PSScriptAnalyzer, con le regole di compatibilità per Windows PowerShell 5.1,
   non segnala problemi.
 - **Excel prodotti:** superano il validatore ufficiale Open XML di Microsoft.
 - **Provati su Windows:** la finestra, la scansione su una rete domestica, il censimento (seriale
   della scheda madre compreso); l'exe si crea e si avvia su Windows (GitHub Actions).
 - **Non ancora provati su un PC vero:**
-  - la lettura dei dati per i fogli Dettagli e Software (provata con dati simulati);
+  - la lettura dei dati per i fogli Dettagli e Software (provata con dati simulati), in particolare
+    batteria, amministratori locali e ultimo aggiornamento;
+  - il riepilogo per il cliente su un censimento vero;
   - `ToolkitHelpDesk.exe` usato con la finestra visibile;
   - la scansione su più reti e su una rete aziendale grande.
 
@@ -277,14 +314,15 @@ progetto avrà un certificato.
 **Privacy policy:** this program will not transfer any information to other networked systems unless
 specifically requested by the user or the person installing or operating it. *Il programma non invia
 dati a nessun servizio esterno: la scansione della rete contatta solo gli indirizzi indicati da chi la
-avvia (ping, NetBIOS, DNS) e tutti i dati restano nei file Excel e nei report accanto al programma.*
+avvia (ping, alcune porte TCP comuni, NetBIOS, DNS, mDNS) e tutti i dati restano nei file Excel e nei
+report accanto al programma.*
 
 ## Licenza
 
 MIT, vedi [LICENSE](LICENSE).
 
 L'elenco dei produttori di schede di rete (`HelpDeskToolkit/Dati/produttori-mac.txt.gz`) deriva dal
-registro pubblico IEEE MA-L tramite il pacchetto [oui-data](https://github.com/silverwind/oui-data)
+registro pubblico IEEE (MA-L, MA-M e MA-S) tramite il pacchetto [oui-data](https://github.com/silverwind/oui-data)
 (licenza BSD-2-Clause, vedi `HelpDeskToolkit/Dati/produttori-mac-LICENSE.txt`).
 
 ## Struttura
@@ -299,6 +337,7 @@ Avvia-Prova.cmd          prova completa per la macchina di test
 Interfaccia.ps1          la finestra
 Toolkit.ps1              menu testuale (riserva se la finestra non si apre)
 config.psd1              impostazioni (facoltative)
+SECURITY.md              download ufficiale, verifica dell'exe, segnalazioni di sicurezza
 Censimento\              Excel, backup, scansioni e rilevazioni (creata al primo uso)
 HelpDeskToolkit\         il modulo PowerShell
 exe\                     sorgente dell'exe (Avvio.cs, icona, Crea-Exe.ps1)

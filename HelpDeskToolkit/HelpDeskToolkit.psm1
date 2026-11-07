@@ -24,4 +24,5 @@ Export-ModuleMember -Function @(
     'Add-PCCensimento'
     'Sync-Censimento'
     'Invoke-ScansioneRete'
+    'Export-RiepilogoCensimento'
 )

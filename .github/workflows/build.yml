@@ -2,7 +2,7 @@
 # Gira su Windows con Windows PowerShell 5.1, come sui PC dei clienti.
 name: Build
 
-# Per pubblicare una versione: crea una Release su GitHub (tag v2.3.0, ecc.):
+# Per pubblicare una versione: crea una Release su GitHub (tag v2.4.0, ecc.):
 # questa build parte da sola e allega ToolkitHelpDesk.zip e helpdesk-toolkit.zip.
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Strumenti di test (Pester 5 e PSScriptAnalyzer)
         shell: powershell
@@ -54,7 +54,7 @@ jobs:
 
       - name: Carica l'exe da firmare
         id: da-firmare
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ToolkitHelpDesk-non-firmato
           path: ToolkitHelpDesk.exe
@@ -65,7 +65,7 @@ jobs:
       # SIGNPATH_PROJECT_SLUG e SIGNPATH_SIGNING_POLICY_SLUG.
       - name: Firma con SignPath
         if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' && github.event_name != 'pull_request' }}
-        uses: signpath/github-action-submit-signing-request@v3
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -98,7 +98,7 @@ jobs:
           "SHA256 di ToolkitHelpDesk.exe: $hash"
 
       - name: Carica i pacchetti
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: pacchetti
           path: |

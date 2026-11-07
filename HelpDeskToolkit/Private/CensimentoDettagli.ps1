@@ -22,12 +22,15 @@ $script:HDColonneDettagli = @(
     New-HDColonnaFoglio 'Avvio' 'Avvio' 9
     New-HDColonnaFoglio 'DischiFisici' 'Dischi fisici' 48
     New-HDColonnaFoglio 'Smart' 'SMART dei dischi' 50
+    New-HDColonnaFoglio 'Batteria' 'Batteria' 26
     New-HDColonnaFoglio 'Bios' 'BIOS' 24
     New-HDColonnaFoglio 'Monitor' 'Monitor' 44
     New-HDColonnaFoglio 'Stampanti' 'Stampanti' 44
     New-HDColonnaFoglio 'Office' 'Office' 34
     New-HDColonnaFoglio 'AttivazioneWindows' 'Attivazione Windows' 26
+    New-HDColonnaFoglio 'Aggiornamento' 'Ultimo aggiornamento' 24
     New-HDColonnaFoglio 'Antivirus' 'Antivirus' 34
+    New-HDColonnaFoglio 'Amministratori' 'Amministratori locali' 40
     New-HDColonnaFoglio 'AccessoRemoto' 'Accesso remoto' 30
     New-HDColonnaFoglio 'Programmi' 'Programmi installati' 12
     New-HDColonnaFoglio 'Rilevato' 'Rilevato il' 17
@@ -241,6 +244,70 @@ function Format-HDBitLocker {
     $voci -join '; '
 }
 
+function Format-HDBatteria {
+    # Salute della batteria: capacità a piena carica rispetto a quella di progetto, es. "78% (39 di 50 Wh)"
+    param($Dati)
+    if ($null -eq $Dati) { return '' }
+    if ([int]$Dati.Presenti -eq 0) { return 'Nessuna' }
+    $progetto = 0
+    foreach ($b in @($Dati.Progetto | Where-Object { $_ })) { $progetto += [double]$b.DesignedCapacity }
+    $piena = 0
+    foreach ($b in @($Dati.Piena | Where-Object { $_ })) { $piena += [double]$b.FullChargedCapacity }
+    if ($progetto -le 0 -or $piena -le 0) { return 'Presente (capacità non leggibile)' }
+    $salute = [int][math]::Round([math]::Min(100, 100 * $piena / $progetto))
+    $testo = '{0}%' -f $salute
+    # sotto 1 Wh la batteria indica la capacità in unità relative, non in mWh
+    if ($progetto -ge 1000) { $testo += ' ({0} di {1} Wh)' -f [int][math]::Round($piena / 1000), [int][math]::Round($progetto / 1000) }
+    if ($salute -lt 50) { $testo += ' - da sostituire' }
+    elseif ($salute -lt 70) { $testo += ' - usurata' }
+    $testo
+}
+
+function Format-HDAmministratori {
+    # Membri del gruppo Administrators: account locali per nome, quelli del dominio come DOMINIO\nome.
+    # Gli account Entra ID e quelli non riconosciuti (SID senza nome) si contano soltanto.
+    param($Membri, [string]$Utente)
+    if ($null -eq $Membri) { return '' }
+    $voci = New-Object System.Collections.Generic.List[string]
+    $entra = 0
+    $ignoti = 0
+    $breve = ([string]$Utente).Split('\')[-1].Trim().ToLowerInvariant()
+    foreach ($m in @($Membri | Where-Object { $_ })) {
+        $parti = @(([string]$m.Percorso -replace '^WinNT://', '').Split('/') | Where-Object { $_ })
+        if ($parti.Count -eq 0) { continue }
+        if ($parti.Count -eq 1 -and $parti[0] -match '^S-1-12-') { $entra++; continue }
+        if ($parti.Count -eq 1 -and $parti[0] -match '^S-1-') { $ignoti++; continue }
+        $nome = $parti[-1]
+        if ($parti.Count -eq 2) { $nome = '{0}\{1}' -f $parti[0], $parti[1] }
+        $note = @()
+        if ($m.Disattivato) { $note += 'disattivato' }
+        if ($breve -and $parti[-1].ToLowerInvariant() -eq $breve -and $m.Classe -ne 'Group') { $note += 'utente del PC' }
+        if ($note.Count -gt 0) { $nome += ' ({0})' -f ($note -join ', ') }
+        $voci.Add($nome)
+    }
+    if ($entra -gt 0) { $voci.Add(('{0} account Entra ID' -f $entra)) }
+    if ($ignoti -eq 1) { $voci.Add('1 account non riconosciuto') }
+    elseif ($ignoti -gt 1) { $voci.Add(('{0} account non riconosciuti' -f $ignoti)) }
+    if ($voci.Count -eq 0) { return 'Nessuno' }
+    $voci -join ', '
+}
+
+function Format-HDUltimoAggiornamento {
+    # Aggiornamento di Windows installato più di recente, es. "14/10/2026 (KB5066835)"
+    param($Qfe, [datetime]$Adesso = (Get-Date))
+    if ($null -eq $Qfe) { return '' }
+    $ultimo = $null
+    $kb = ''
+    foreach ($q in @($Qfe | Where-Object { $_ })) {
+        $d = ConvertFrom-HDDataQfe -Valore $q.InstalledOn -Adesso $Adesso
+        if ($d -and (-not $ultimo -or $d -gt $ultimo)) { $ultimo = $d; $kb = [string]$q.HotFixID }
+    }
+    if (-not $ultimo) { return 'Data non leggibile' }
+    $testo = $ultimo.ToString('dd/MM/yyyy', $script:HDInvariante)
+    if ($kb) { $testo += ' ({0})' -f $kb }
+    $testo
+}
+
 function Format-HDFirmware {
     # "1.15.0 (12/03/2022)"
     param($Bios)
@@ -402,7 +469,7 @@ function Get-HDAccessoRemoto {
 
 function ConvertTo-HDDettagliPC {
     # Dati grezzi -> valori del foglio Dettagli (hashtable) ed elenco per il foglio Software
-    param([Parameter(Mandatory)]$Grezzo, [string]$SistemaOperativo, [bool]$Server, [string]$Processore)
+    param([Parameter(Mandatory)]$Grezzo, [string]$SistemaOperativo, [bool]$Server, [string]$Processore, [string]$Utente)
     $tpm = ConvertFrom-HDTpm -Wmi $Grezzo.Tpm -Dispositivi $Grezzo.TpmDispositivi
     $avvio = ConvertFrom-HDAvvio $Grezzo.Avvio
     # la chiave di Secure Boot esiste solo sui PC con avvio UEFI
@@ -428,12 +495,15 @@ function ConvertTo-HDDettagliPC {
         Avvio              = $avvio
         DischiFisici       = (Format-HDDischiFisici -Dischi $Grezzo.DischiFisici -DischiWin32 $Grezzo.DischiWin32)
         Smart              = (Format-HDSmart -Contatori $Grezzo.Smart -Previsione $Grezzo.SmartPrevisione)
+        Batteria           = (Format-HDBatteria $Grezzo.Batteria)
         Bios               = (Format-HDFirmware $Grezzo.Bios)
         Monitor            = (Format-HDMonitor $Grezzo.Monitor)
         Stampanti          = (Format-HDStampanti $Grezzo.Stampanti)
         Office             = (Get-HDOfficeInstallato -Programmi $Grezzo.Programmi -ClickToRun $Grezzo.OfficeC2R)
         AttivazioneWindows = (Get-HDAttivazioneWindows $Grezzo.Licenza)
+        Aggiornamento      = (Format-HDUltimoAggiornamento $Grezzo.Qfe)
         Antivirus          = (Get-HDAntivirusInstallati $Grezzo.Antivirus)
+        Amministratori     = (Format-HDAmministratori -Membri $Grezzo.Amministratori -Utente $Utente)
         AccessoRemoto      = (Get-HDAccessoRemoto -Programmi $Grezzo.Programmi -DesktopRemoto $Grezzo.DesktopRemoto)
         Programmi          = ''
     }
@@ -514,18 +584,7 @@ function Add-HDColonneMancanti {
 function Get-HDStatoFoglioSoftware {
     # Il foglio Software viene riscritto ogni volta: va bene se manca, se è vuoto o se è nostro
     param([object[]]$Fogli)
-    $f = @($Fogli | Where-Object { $_ -and $_.Nome -eq $script:HDFoglioSoftware }) | Select-Object -First 1
-    $stato = [pscustomobject]@{ Nome = $script:HDFoglioSoftware; Definizione = $script:HDColonneSoftware; Esiste = $false; Conflitto = $false; ParteFoglio = $null; IndiceFoglio = -1; Nascosto = $false }
-    if (-not $f) { return $stato }
-    $stato.Esiste = $true
-    $stato.ParteFoglio = $f.Parte
-    $stato.IndiceFoglio = $f.Indice
-    if ($f.Righe.Count -gt 0) {
-        $primaRiga = $f.Righe[@($f.Righe.Keys)[0]]
-        $titoli = @($primaRiga.Values | ForEach-Object { ConvertTo-HDChiave ([string]$_) })
-        if ($titoli -notcontains 'programma') { $stato.Conflitto = $true }
-    }
-    $stato
+    Get-HDStatoFoglioRiscritto -Fogli $Fogli -Nome $script:HDFoglioSoftware -Colonne $script:HDColonneSoftware -Titolo 'Programma'
 }
 
 function Add-HDDettagliATabella {

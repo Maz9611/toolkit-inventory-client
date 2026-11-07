@@ -209,13 +209,21 @@ function Get-HDProduttoreMac {
     $esadecimale = $m -replace ':', ''
     if (([Convert]::ToInt32($esadecimale.Substring(0, 2), 16) -band 2) -ne 0) { return 'MAC casuale (telefono, tablet o PC con privacy attiva)' }
     if ($null -eq $script:HDProduttoriMac) { $script:HDProduttoriMac = Read-HDElencoProduttoriMac }
+    # Prima i blocchi piccoli (MA-S: 9 cifre, MA-M: 7), poi l'OUI (6). Un OUI dell'IEEE Registration
+    # Authority è diviso tra tanti produttori: se il blocco non è nell'elenco, il produttore non si sa
     $nome = $null
-    if ($script:HDProduttoriMac.TryGetValue($esadecimale.Substring(0, 6), [ref]$nome)) { return $nome }
+    foreach ($cifre in 9, 7, 6) {
+        if ($script:HDProduttoriMac.TryGetValue($esadecimale.Substring(0, $cifre), [ref]$nome)) {
+            if ($nome -eq 'IEEE Registration Authority') { return '' }
+            return $nome
+        }
+    }
     ''
 }
 
 function Read-HDElencoProduttoriMac {
-    # Elenco "OUI<TAB>produttore" compresso: dal file accanto al modulo oppure (nell'exe) dal testo passato all'avvio
+    # Elenco "prefisso<TAB>produttore" compresso (prefisso di 6, 7 o 9 cifre esadecimali): dal file accanto
+    # al modulo oppure (nell'exe) dal testo passato all'avvio
     $elenco = New-Object 'System.Collections.Generic.Dictionary[string,string]'
     $testo = $script:HDTestoProduttoriMac
     if (-not $testo) {
@@ -230,7 +238,7 @@ function Read-HDElencoProduttoriMac {
     }
     foreach ($riga in $testo.Split([char]10)) {
         $i = $riga.IndexOf([char]9)
-        if ($i -eq 6) { $elenco[$riga.Substring(0, 6)] = $riga.Substring(7).Trim() }
+        if ($i -eq 6 -or $i -eq 7 -or $i -eq 9) { $elenco[$riga.Substring(0, $i)] = $riga.Substring($i + 1).Trim() }
     }
     $elenco
 }

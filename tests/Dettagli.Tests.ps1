@@ -1,71 +1,7 @@
 ﻿BeforeAll {
     . (Join-Path $PSScriptRoot 'Inizializza.ps1')
 
-    # Dati grezzi completi (anche quelli per i fogli Dettagli e Software)
-    function New-GrezzoCompleto {
-        param([string]$Nome = 'PC-AMMINISTRAZIONE', [string]$Serie = 'SER-001', [string]$Mac = '00:11:22:33:44:01', [object[]]$Programmi)
-        if (-not $PSBoundParameters.ContainsKey('Programmi')) {
-            $Programmi = @(
-                [pscustomobject]@{ DisplayName = 'Mozilla Firefox (x64 it)'; DisplayVersion = '131.0'; Publisher = 'Mozilla'; InstallDate = '20241005' }
-                [pscustomobject]@{ DisplayName = 'Adobe Acrobat Reader'; DisplayVersion = '24.003'; Publisher = 'Adobe'; InstallDate = '20240110' }
-                [pscustomobject]@{ DisplayName = 'TeamViewer'; DisplayVersion = '15.50'; Publisher = 'TeamViewer' }
-                [pscustomobject]@{ DisplayName = 'Microsoft 365 Apps for business - it-it'; DisplayVersion = '16.0.17126.20132'; Publisher = 'Microsoft Corporation' }
-                [pscustomobject]@{ DisplayName = 'Microsoft Visual C++ 2015-2022 Redistributable (x64) - 14.38.33135'; DisplayVersion = '14.38'; Publisher = 'Microsoft Corporation' }
-                [pscustomobject]@{ DisplayName = 'Componente di sistema'; SystemComponent = 1 }
-            )
-        }
-        [pscustomobject]@{
-            NomePC = $Nome; UnitaSistema = 'C:'
-            ComputerSystem = [pscustomobject]@{ Manufacturer = 'Dell Inc.'; Model = 'OptiPlex 7090'; Domain = 'studio.local'; PartOfDomain = $true; UserName = 'STUDIO\giulia'; TotalPhysicalMemory = 16GB; PCSystemType = 1 }
-            Prodotto = $null
-            SistemaOperativo = [pscustomobject]@{ Caption = 'Microsoft Windows 10 Pro'; BuildNumber = '19045' }
-            VersioneWindows = [pscustomobject]@{ DisplayVersion = '22H2'; CurrentBuild = '19045'; UBR = 5011 }
-            Bios = [pscustomobject]@{ SerialNumber = $Serie; SMBIOSBIOSVersion = '1.15.0'; ReleaseDate = [datetime]'2022-03-12' }
-            Chassis = @(3)
-            Processori = @([pscustomobject]@{ Name = 'Intel(R) Core(TM) i7-11700 @ 2.50GHz' })
-            Memoria = @([pscustomobject]@{ Capacity = 8GB }, [pscustomobject]@{ Capacity = 8GB })
-            Volumi = @([pscustomobject]@{ DeviceID = 'C:'; Size = 476GB; FreeSpace = 120GB })
-            ConfigRete = @([pscustomobject]@{ Description = 'Intel Ethernet'; IPAddress = @('192.168.1.21'); MACAddress = $Mac; DefaultIPGateway = @('192.168.1.1'); DHCPEnabled = $true; IPConnectionMetric = 25 })
-            SchedeRete = @(); UltimoAccesso = $null; Profili = @(); Entra = $null
-            Cynet = [pscustomobject]@{ Processi = @('CynetEPS'); Servizi = @(); Programmi = @(); File = @() }
-            Avvio = 2
-            SecureBoot = [pscustomobject]@{ Attivo = 0 }
-            Tpm = [pscustomobject]@{ SpecVersion = '2.0, 0, 1.38'; IsEnabled_InitialValue = $true }
-            TpmDispositivi = $null
-            DischiFisici = @(
-                [pscustomobject]@{ FriendlyName = 'Samsung SSD 980 500GB'; MediaType = 4; BusType = 17; Size = 500GB; HealthStatus = 0 }
-                [pscustomobject]@{ FriendlyName = 'WDC WD10EZEX'; MediaType = 3; BusType = 11; Size = 1000GB; HealthStatus = 1 }
-                [pscustomobject]@{ FriendlyName = 'Chiavetta USB'; MediaType = 0; BusType = 7; Size = 32GB; HealthStatus = 0 }
-            )
-            BitLockerAdmin = @([pscustomobject]@{ DriveLetter = 'C:'; ProtectionStatus = 1 })
-            Smart = @(
-                [pscustomobject]@{ Disco = 'Samsung SSD 980 500GB'; Temperatura = 38; Usura = 3; Ore = 2140; ErroriLettura = 0; ErroriScrittura = 0 }
-                [pscustomobject]@{ Disco = 'WDC WD10EZEX'; Temperatura = 41; Usura = $null; Ore = 31200; ErroriLettura = 12; ErroriScrittura = 0 }
-            )
-            SmartPrevisione = @([pscustomobject]@{ InstanceName = 'x'; PredictFailure = $false })
-            Monitor = @(
-                [pscustomobject]@{ Produttore = 'DEL'; Nome = 'DELL P2419H'; Seriale = 'CFV9N93'; Anno = 2020 }
-                [pscustomobject]@{ Produttore = 'SAM'; Nome = 'S24F350'; Seriale = '0'; Anno = 2018 }
-            )
-            Stampanti = @(
-                [pscustomobject]@{ Name = 'HP LaserJet M404'; DriverName = 'HP Universal Printing PCL 6'; PortName = 'IP_192.168.1.50'; Default = $true }
-                [pscustomobject]@{ Name = 'Microsoft Print to PDF'; DriverName = 'Microsoft Print To PDF'; PortName = 'PORTPROMPT:' }
-            )
-            Programmi = $Programmi
-            OfficeC2R = [pscustomobject]@{ ProductReleaseIds = 'O365BusinessRetail'; VersionToReport = '16.0.17126.20132' }
-            Licenza = @([pscustomobject]@{ Name = 'Windows(R), Professional edition'; Description = 'Windows(R) Operating System, OEM_DM channel'; LicenseStatus = 1 })
-            Antivirus = @([pscustomobject]@{ displayName = 'Windows Defender'; productState = 397568 })
-            DesktopRemoto = 1
-            Raccolto = [datetime]'2026-11-02 10:00'
-        }
-    }
-    function Get-Fogli([string]$Percorso) {
-        InModuleScope HelpDeskToolkit -Parameters @{ P = $Percorso } { param($P) Read-HDXlsx -Percorso $P }
-    }
-    function Get-RigheFoglio($Fogli, [string]$Nome) {
-        $f = $Fogli | Where-Object { $_.Nome -eq $Nome }
-        foreach ($n in $f.Righe.Keys) { if ($n -gt 1) { , $f.Righe[$n] } }
-    }
+    . (Join-Path $PSScriptRoot 'DatiDiProva.ps1')
 }
 AfterAll { . (Join-Path $PSScriptRoot 'Termina.ps1') }
 
@@ -153,6 +89,41 @@ Describe 'Hardware, software e licenze -> testi del foglio Dettagli' {
         $script:Det.Dettagli.AccessoRemoto | Should -Be 'TeamViewer'
     }
 
+    It 'batteria, ultimo aggiornamento di Windows e amministratori locali' {
+        $script:Det.Dettagli.Batteria | Should -Be 'Nessuna'
+        $script:Det.Dettagli.Aggiornamento | Should -Be '14/10/2026 (KB5066835)'
+        $script:Det.Dettagli.Amministratori | Should -Be 'Administrator (disattivato), STUDIO\giulia, STUDIO\Domain Admins, 1 account Entra ID'
+    }
+
+    It 'salute della batteria del portatile: <Atteso>' -TestCases @(
+        @{ Progetto = 50000; Piena = 39000; Atteso = '78% (39 di 50 Wh)' }
+        @{ Progetto = 50000; Piena = 31000; Atteso = '62% (31 di 50 Wh) - usurata' }
+        @{ Progetto = 50000; Piena = 22000; Atteso = '44% (22 di 50 Wh) - da sostituire' }
+        @{ Progetto = 100; Piena = 85; Atteso = '85%' }
+        @{ Progetto = $null; Piena = 41000; Atteso = 'Presente (capacità non leggibile)' }
+    ) {
+        param($Progetto, $Piena, $Atteso)
+        $dati = [pscustomobject]@{
+            Presenti = 1
+            Progetto = @(if ($null -ne $Progetto) { [pscustomobject]@{ InstanceName = 'B0'; DesignedCapacity = $Progetto } })
+            Piena    = @([pscustomobject]@{ InstanceName = 'B0'; FullChargedCapacity = $Piena })
+        }
+        InModuleScope HelpDeskToolkit -Parameters @{ D = $dati } { param($D) Format-HDBatteria $D } | Should -Be $Atteso
+    }
+
+    It 'amministratori: account locale dell''utente, account non riconosciuti, lettura non riuscita' {
+        InModuleScope HelpDeskToolkit {
+            $membri = @(
+                [pscustomobject]@{ Percorso = 'WinNT://WORKGROUP/PC-01/mario'; Classe = 'User'; Disattivato = $false }
+                [pscustomobject]@{ Percorso = 'WinNT://S-1-5-21-1-2-3-1001'; Classe = 'User'; Disattivato = $null }
+            )
+            Format-HDAmministratori -Membri $membri -Utente 'mario' | Should -Be 'mario (utente del PC), 1 account non riconosciuto'
+            Format-HDAmministratori -Membri @() -Utente 'mario' | Should -Be 'Nessuno'
+            Format-HDAmministratori -Membri $null | Should -Be ''
+            Format-HDUltimoAggiornamento -Qfe @([pscustomobject]@{ HotFixID = 'KB1'; InstalledOn = '' }) | Should -Be 'Data non leggibile'
+        }
+    }
+
     It 'elenco dei programmi senza componenti di sistema e librerie, con data italiana' {
         $nomi = @($script:Det.Software | ForEach-Object { $_.Nome })
         $nomi | Should -Be @('Adobe Acrobat Reader', 'Microsoft 365 Apps for business - it-it', 'Mozilla Firefox (x64 it)', 'TeamViewer')
@@ -189,6 +160,8 @@ Describe 'Hardware, software e licenze -> testi del foglio Dettagli' {
         $r = InModuleScope HelpDeskToolkit -Parameters @{ G = (New-GrezzoCompleto) } { param($G) ConvertTo-HDRecordCensimento -Grezzo $G }
         $r.BitLocker | Should -Be 'C: attiva'
         $r.Dettagli.TPM | Should -Be '2.0'
+        # l'utente del PC (giulia, collegata) è tra gli amministratori: va segnalato
+        $r.Dettagli.Amministratori | Should -BeLike '*STUDIO\giulia (utente del PC)*'
         @($r.Software).Count | Should -Be 4
     }
 }
@@ -229,8 +202,8 @@ Describe 'Fogli Dettagli e Software nell''Excel' {
         $script:File = (New-Censimento -Cliente 'Dettagli' -Confirm:$false).FullName
     }
 
-    It 'un Excel nuovo ha i fogli Dettagli, Software e DatiSoftware (nascosto) e la colonna BitLocker' {
-        @(Get-Fogli $script:File | ForEach-Object { $_.Nome }) | Should -Be @('Censimento', 'Dettagli', 'Software', 'DatiSoftware')
+    It 'un Excel nuovo ha i fogli Riepilogo, Dettagli, Software, Storico e DatiSoftware (nascosto)' {
+        @(Get-Fogli $script:File | ForEach-Object { $_.Nome }) | Should -Be @('Censimento', 'Riepilogo', 'Dettagli', 'Software', 'Storico', 'DatiSoftware')
     }
 
     It 'censisce due PC: Dettagli una riga per PC, Software una riga per programma; poi aggiorna senza doppioni' {
@@ -279,7 +252,7 @@ Describe 'Fogli Dettagli e Software nell''Excel' {
         $e.Scritto | Should -BeTrue
         @($avvisi) | Should -BeNullOrEmpty
         $fogli = Get-Fogli $vecchio
-        @($fogli | ForEach-Object { $_.Nome }) | Should -Be @('Censimento', 'Dettagli', 'Software', 'DatiSoftware')
+        @($fogli | ForEach-Object { $_.Nome }) | Should -Be @('Censimento', 'Dettagli', 'Software', 'DatiSoftware', 'Storico', 'Riepilogo')
         $principale = $fogli | Where-Object Nome -eq 'Censimento'
         $principale.Righe[1][20] | Should -Be 'Locazione'
         $principale.Righe[1][21] | Should -Be 'BitLocker'
