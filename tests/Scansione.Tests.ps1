@@ -226,6 +226,22 @@ Describe 'ARP e NetBIOS' {
 }
 
 Describe 'Produttore dal MAC e nomi mDNS' {
+    It 'controllo delle porte: rifiuto valido solo sulla rete del PC, scartato se risponde "tutto"' {
+        InModuleScope HelpDeskToolkit {
+            $locale = Get-HDInfoRete '192.168.1.0/24'
+            $sonde = @(
+                [pscustomobject]@{ IP = '192.168.1.50'; Aperta = $false }
+                [pscustomobject]@{ IP = '10.0.5.7'; Aperta = $false }
+                [pscustomobject]@{ IP = '10.0.5.8'; Aperta = $true }
+            )
+            @(Select-HDSondeAffidabili -Sonde $sonde -InfoLocale $locale -Provati 250) | Should -Be @('192.168.1.50', '10.0.5.8')
+            $tutti = @(1..200 | ForEach-Object { [pscustomobject]@{ IP = "10.0.5.$_"; Aperta = $false } })
+            @(Select-HDSondeAffidabili -Sonde $tutti -InfoLocale $locale -Provati 250 -WarningAction SilentlyContinue) | Should -BeNullOrEmpty
+            $tuttiLocali = @(1..200 | ForEach-Object { [pscustomobject]@{ IP = "192.168.1.$_"; Aperta = ($_ -eq 7) } })
+            @(Select-HDSondeAffidabili -Sonde $tuttiLocali -InfoLocale $locale -Provati 250 -WarningAction SilentlyContinue) | Should -Be @('192.168.1.7')
+        }
+    }
+
     It 'scarta i nomi segnaposto come "(none)"' {
         InModuleScope HelpDeskToolkit {
             Test-HDNomeValido '(none)-2' | Should -BeFalse
@@ -292,13 +308,15 @@ Describe 'Invoke-ScansioneRete (rete simulata)' {
             }
         }
         Mock -ModuleName HelpDeskToolkit Resolve-HDNomeDnsInverso { @{ '192.168.1.1' = 'router.fritz.box' } }
-        Mock -ModuleName HelpDeskToolkit Resolve-HDNomeMulticast { @{ '192.168.1.69' = 'Redmi-Note-12' } }
+        # .184 ignora ping e ARP ma ha una porta aperta; .200 risponde solo a mDNS (un Mac)
+        Mock -ModuleName HelpDeskToolkit Invoke-HDSondaTcp { [pscustomobject]@{ IP = '192.168.1.184'; Aperta = $false } }
+        Mock -ModuleName HelpDeskToolkit Resolve-HDNomeMulticast { @{ '192.168.1.69' = 'Redmi-Note-12'; '192.168.1.200' = 'Air-di-Bianca'; '10.9.9.9' = 'fuori-rete' } }
     }
 
     It 'unisce ping, ARP e nomi, in ordine di IP, e salva una copia CSV' {
         $s = Invoke-ScansioneRete -Confirm:$false
         $s.Rete | Should -Be '192.168.1.0/24'
-        @($s.Dispositivi | ForEach-Object { $_.IP }) | Should -Be @('192.168.1.1', '192.168.1.20', '192.168.1.30', '192.168.1.37', '192.168.1.69')
+        @($s.Dispositivi | ForEach-Object { $_.IP }) | Should -Be @('192.168.1.1', '192.168.1.20', '192.168.1.30', '192.168.1.37', '192.168.1.69', '192.168.1.184', '192.168.1.200')
         $router = $s.Dispositivi[0]
         $router.Hostname | Should -Be 'ROUTER'
         $router.MAC | Should -Be 'CC:28:AA:D2:EE:F0'
@@ -310,17 +328,22 @@ Describe 'Invoke-ScansioneRete (rete simulata)' {
         Test-Path -LiteralPath $s.FileCsv | Should -BeTrue
         $s.Dispositivi[4].Hostname | Should -Be 'REDMI-NOTE-12'
         $s.Dispositivi[4].Fonte | Should -Be 'ping, mDNS'
+        $s.Dispositivi[5].Fonte | Should -Be 'TCP'
+        $s.Dispositivi[6].Hostname | Should -Be 'AIR-DI-BIANCA'
+        $s.Dispositivi[6].Fonte | Should -Be 'mDNS'
         Should -Invoke -ModuleName HelpDeskToolkit Invoke-HDPingParallelo -Times 2
-        Should -Invoke -ModuleName HelpDeskToolkit Resolve-HDNomeDnsInverso -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 3 }
-        Should -Invoke -ModuleName HelpDeskToolkit Resolve-HDNomeMulticast -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 2 }
+        Should -Invoke -ModuleName HelpDeskToolkit Invoke-HDSondaTcp -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 249 }
+        Should -Invoke -ModuleName HelpDeskToolkit Resolve-HDNetbiosRemoto -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 254 }
+        Should -Invoke -ModuleName HelpDeskToolkit Resolve-HDNomeMulticast -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 254 }
+        Should -Invoke -ModuleName HelpDeskToolkit Resolve-HDNomeDnsInverso -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 5 }
     }
 
     It 'con -NelCensimento mette i dispositivi nell''Excel (senza scrivere il dominio)' {
         $s = Invoke-ScansioneRete -NelCensimento -Cliente 'Rete Simulata' -NonChiedere -Confirm:$false
-        $s.Import.Aggiunti | Should -Be 5
+        $s.Import.Aggiunti | Should -Be 7
         $file = Join-Path $script:CartellaCensimentoTest 'Censimento_Rete-Simulata.xlsx'
         $t = InModuleScope HelpDeskToolkit -Parameters @{ P = $file } { param($P) Get-HDTabellaCensimento $P }
-        $t.Righe | Should -HaveCount 5
+        $t.Righe | Should -HaveCount 7
         $pc = $t.Righe | Where-Object { $_.Valori['Hostname'] -eq 'PC-RECEPTION' }
         $pc.Valori['MAC'] | Should -Be '00:11:22:33:44:55'
         $pc.Valori.ContainsKey('Dominio') | Should -BeFalse

@@ -63,7 +63,9 @@ le domande nella finestra nera); **`Importa-Scansione.cmd`** importa un file di 
   solo la /24 del PC: le altre parti le aggiungi tu.
 - **Stessa rete del PC:** si trovano anche i dispositivi che non rispondono al ping (tabella ARP),
   con il MAC. Chi non risponde subito (telefoni e dispositivi a risparmio energetico) viene
-  ricontattato in un secondo giro più lento.
+  ricontattato in un secondo giro più lento; chi ancora manca viene cercato su alcune porte TCP
+  comuni e con domande NetBIOS e mDNS (così si trovano anche Mac, iPhone e PC con il firewall che
+  blocca il ping).
 - **Nomi:** NetBIOS (PC Windows), DNS e mDNS (router, stampanti, telefoni, dispositivi smart).
 - **Produttore:** dal MAC, con l'elenco ufficiale IEEE dei produttori (incluso nel toolkit). I MAC
   "casuali" di telefoni e tablet vengono indicati come tali.
@@ -244,7 +246,7 @@ Ogni comando ha la guida: `Get-Help Invoke-ScansioneRete -Full`. Quelli che scri
 
 ## Cosa è stato verificato e cosa no
 
-- **Test automatici:** ne passano 339 (Excel con più fogli, scansione anche su più reti, abbinamenti,
+- **Test automatici:** ne passano 340 (Excel con più fogli, scansione anche su più reti, abbinamenti,
   formati delle colonne, fogli Dettagli e Software, verifica postazione, motore dell'exe). A ogni
   modifica girano anche su Windows PowerShell 5.1 con GitHub Actions, che crea l'exe e lo avvia. PSScriptAnalyzer, con le regole di compatibilità per Windows PowerShell 5.1,
   non segnala problemi.

@@ -6,9 +6,11 @@ function Invoke-ScansioneRete {
     Scansiona la rete locale e, con -NelCensimento, mette i dispositivi trovati nell'Excel.
 
     .DESCRIPTION
-    Senza programmi esterni: ping a tutti gli indirizzi della rete, tabella ARP di Windows
-    (trova anche i PC che bloccano il ping), nomi via NetBIOS e DNS. Ci vogliono di solito
-    10-20 secondi per una rete /24. Ogni scansione viene salvata anche in
+    Senza programmi esterni: ping a tutti gli indirizzi della rete (due giri), tabella ARP di
+    Windows, per chi ancora manca alcune porte TCP comuni (445, 80, 443, 22, 7000, 62078: la
+    connessione si apre e si chiude subito), domande NetBIOS e mDNS a tutti gli indirizzi, nomi
+    anche dal DNS. Trova così anche Mac, iPhone e PC con il firewall che blocca il ping. Ci
+    vogliono di solito 15-20 secondi per una rete /24. Ogni scansione viene salvata anche in
     Censimento\scansioni come CSV.
     Con -NelCensimento i dispositivi entrano nell'Excel con le stesse regole dell'import
     di Advanced IP Scanner: IP sempre aggiornato, il resto solo nelle celle vuote, nessun
@@ -77,20 +79,35 @@ function Invoke-ScansioneRete {
         foreach ($v in @(Get-HDViciniArp -Info $info)) { $arp[$v.IP] = $v.MAC }
     }
 
+    # Terzo controllo per chi ancora manca: porte TCP comuni (Mac, iPhone, PC con firewall)
+    $tcp = @()
+    $mancanti = @($indirizzi | Where-Object { $rispondono -notcontains $_ -and -not $arp.ContainsKey($_) })
+    if ($mancanti.Count -gt 0 -and $mancanti.Count -le 1024) {
+        & $segnala ('Controllo di alcune porte comuni su {0} indirizzi...' -f $mancanti.Count)
+        $infoLocale = $null
+        if ($locale -and $locale.Rete) { try { $infoLocale = Get-HDInfoRete $locale.Rete } catch { $infoLocale = $null } }
+        $tcp = @(Select-HDSondeAffidabili -Sonde @(Invoke-HDSondaTcp -Indirizzi $mancanti -Avanzamento $Avanzamento) -InfoLocale $infoLocale -Provati $mancanti.Count)
+    }
+
+    # Nomi chiesti a tutti gli indirizzi: chi risponde a NetBIOS o mDNS esiste, anche se ignora il ping
+    & $segnala 'Ricerca dei nomi (NetBIOS e mDNS)...'
+    $netbios = Resolve-HDNetbiosRemoto -Indirizzi $indirizzi
+    $mdns = Resolve-HDNomeMulticast -Indirizzi $indirizzi
+
+    # Ultima lettura della tabella ARP: il MAC anche di chi si è fatto vivo con gli ultimi controlli
+    foreach ($v in @(Get-HDViciniArp -Info $info)) { if (-not $arp.ContainsKey($v.IP)) { $arp[$v.IP] = $v.MAC } }
+
     $trovati = New-Object System.Collections.Generic.List[string]
-    foreach ($ip in @($rispondono) + @($arp.Keys)) { if (-not $trovati.Contains($ip)) { $trovati.Add($ip) } }
+    foreach ($ip in @($rispondono) + @($arp.Keys) + @($tcp) + @($netbios.Keys) + @($mdns.Keys)) {
+        if ($ip -and (Test-HDIpNellaRete -Ip $ip -Info $info) -and -not $trovati.Contains($ip)) { $trovati.Add($ip) }
+    }
     if ($locale -and (Test-HDIpNellaRete -Ip $locale.IP -Info $info) -and -not $trovati.Contains($locale.IP)) { $trovati.Add($locale.IP) }
 
-    & $segnala ('Ricerca dei nomi di {0} dispositivi...' -f $trovati.Count)
-    $netbios = @{}
     $dns = @{}
-    $mdns = @{}
-    if ($trovati.Count -gt 0) {
-        $netbios = Resolve-HDNetbiosRemoto -Indirizzi $trovati.ToArray()
-        $senzaNome = @($trovati | Where-Object { -not $netbios.ContainsKey($_) })
-        if ($senzaNome.Count -gt 0) { $dns = Resolve-HDNomeDnsInverso -Indirizzi $senzaNome }
-        $senzaNome = @($senzaNome | Where-Object { -not $dns.ContainsKey($_) })
-        if ($senzaNome.Count -gt 0) { $mdns = Resolve-HDNomeMulticast -Indirizzi $senzaNome }
+    $senzaNome = @($trovati | Where-Object { -not ($netbios.ContainsKey($_) -and (Test-HDNomeValido $netbios[$_].Nome)) })
+    if ($senzaNome.Count -gt 0) {
+        & $segnala ('Ricerca dei nomi DNS di {0} dispositivi...' -f $senzaNome.Count)
+        $dns = Resolve-HDNomeDnsInverso -Indirizzi $senzaNome
     }
 
     $dispositivi = foreach ($ip in ($trovati | Sort-Object { ConvertTo-HDNumeroIp $_ })) {
@@ -100,6 +117,7 @@ function Invoke-ScansioneRete {
         $fonte = @()
         if ($rispondono -contains $ip) { $fonte += 'ping' }
         if ($arp.ContainsKey($ip)) { $fonte += 'ARP' }
+        if ($tcp -contains $ip) { $fonte += 'TCP' }
         if ($netbios.ContainsKey($ip) -and (Test-HDNomeValido $netbios[$ip].Nome)) {
             $nome = $netbios[$ip].Nome
             $gruppo = $netbios[$ip].Gruppo
@@ -108,6 +126,7 @@ function Invoke-ScansioneRete {
         }
         elseif ($dns.ContainsKey($ip) -and (Test-HDNomeValido $dns[$ip])) { $nome = $dns[$ip]; $fonte += 'DNS' }
         elseif ($mdns.ContainsKey($ip) -and (Test-HDNomeValido $mdns[$ip])) { $nome = $mdns[$ip]; $fonte += 'mDNS' }
+        elseif ($netbios.ContainsKey($ip) -or $mdns.ContainsKey($ip)) { $fonte += 'NetBIOS/mDNS' }
         if ($locale -and $ip -eq $locale.IP) {
             if (-not $nome) { $nome = $locale.Hostname }
             if (-not $mac) { $mac = $locale.MAC }

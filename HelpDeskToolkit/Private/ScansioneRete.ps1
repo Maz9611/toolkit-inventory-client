@@ -350,6 +350,65 @@ function Invoke-HDPingParallelo {
     $vivi.ToArray()
 }
 
+function Invoke-HDSondaTcp {
+    # Chi non risponde al ping ma esiste: una porta TCP comune che accetta la connessione (Aperta)
+    # o la rifiuta. Mac, iPhone, PC con il firewall che blocca il ping. Si apre e si chiude subito
+    # la connessione: nessun dato inviato. Restituisce IP e Aperta ($true se almeno una porta è aperta);
+    # chi usa il risultato decide se un rifiuto basta (sulla rete del PC sì, oltre un router no).
+    param(
+        [Parameter(Mandatory)][string[]]$Indirizzi,
+        [int[]]$Porte = @(445, 80, 443, 22, 7000, 62078),
+        [int]$TimeoutMs = 1500,
+        [int]$Blocco = 512,
+        [scriptblock]$Avanzamento
+    )
+    $vivi = @{}
+    $coppie = @(foreach ($ip in $Indirizzi) { foreach ($porta in $Porte) { [pscustomobject]@{ IP = $ip; Porta = $porta } } })
+    for ($i = 0; $i -lt $coppie.Count; $i += $Blocco) {
+        $parte = @($coppie[$i..([math]::Min($i + $Blocco, $coppie.Count) - 1)])
+        $prove = foreach ($c in $parte) {
+            $client = New-Object System.Net.Sockets.TcpClient
+            $attesa = $null
+            try { $attesa = $client.ConnectAsync($c.IP, $c.Porta) } catch { $attesa = $null }
+            [pscustomobject]@{ IP = $c.IP; Client = $client; Attesa = $attesa }
+        }
+        $compiti = @($prove | Where-Object { $_.Attesa } | ForEach-Object { $_.Attesa })
+        if ($compiti.Count -gt 0) {
+            try { [void][System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]$compiti, $TimeoutMs) }
+            catch { Write-Verbose 'Alcune porte hanno rifiutato o non hanno risposto' }
+        }
+        foreach ($p in $prove) {
+            if ($p.Attesa -and $p.Attesa.IsCompleted) {
+                if ($p.Attesa.Status -eq 'RanToCompletion') { $vivi[$p.IP] = $true }
+                elseif ($p.Attesa.Exception) {
+                    $errore = $p.Attesa.Exception.InnerException
+                    if ($errore -is [System.Net.Sockets.SocketException] -and [string]$errore.SocketErrorCode -eq 'ConnectionRefused' -and -not $vivi.ContainsKey($p.IP)) { $vivi[$p.IP] = $false }
+                }
+            }
+            try { $p.Client.Close() } catch { Write-Verbose 'Connessione già chiusa' }
+        }
+        if ($Avanzamento) { & $Avanzamento ('Controllo delle porte: {0} di {1}' -f [math]::Min($i + $Blocco, $coppie.Count), $coppie.Count) }
+    }
+    foreach ($ip in $vivi.Keys) { [pscustomobject]@{ IP = $ip; Aperta = [bool]$vivi[$ip] } }
+}
+
+function Select-HDSondeAffidabili {
+    # Dal controllo delle porte tiene solo i risultati credibili:
+    # - sulla rete del PC basta un rifiuto (lì può rispondere solo il dispositivo stesso);
+    # - oltre un router serve una porta aperta (un firewall può rifiutare al posto di tutti);
+    # - se risultano "vivi" quasi tutti gli indirizzi provati, qualcosa risponde per tutti: si scarta.
+    [CmdletBinding()]
+    param([object[]]$Sonde, $InfoLocale, [int]$Provati)
+    $tenute = @(@($Sonde | Where-Object { $_ }) | Where-Object { $_.Aperta -or ($InfoLocale -and (Test-HDIpNellaRete -Ip $_.IP -Info $InfoLocale)) })
+    $sospetto = { param($n) $n -gt 20 -and $n -gt ($Provati * 0.5) }
+    if (& $sospetto $tenute.Count) {
+        $tenute = @($tenute | Where-Object { $_.Aperta })
+        if (& $sospetto $tenute.Count) { $tenute = @() }
+        Write-Warning 'Troppi indirizzi rispondono sulle porte TCP (probabilmente un firewall risponde al posto di tutti): quel controllo non viene usato.'
+    }
+    @($tenute | ForEach-Object { $_.IP })
+}
+
 function Get-HDViciniArp {
     # Tabella ARP di Windows (dopo il ping contiene anche chi blocca il ping)
     param([Parameter(Mandatory)]$Info)
@@ -375,7 +434,7 @@ function Test-HDNomeValido {
 }
 
 function Resolve-HDNetbiosRemoto {
-    param([Parameter(Mandatory)][string[]]$Indirizzi, [int]$AttesaMs = 1200)
+    param([Parameter(Mandatory)][string[]]$Indirizzi, [int]$AttesaMs = 1500)
     $risposte = @{}
     $udp = New-Object System.Net.Sockets.UdpClient(0)
     try {

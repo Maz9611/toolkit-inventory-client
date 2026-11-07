@@ -65,7 +65,7 @@ do {
     Write-Host '  8  Spazio disco (e cosa si può liberare)'
     Write-Host '  9  Apri la cartella dei report'
     Write-Host ''
-    Write-Host '  A  Riavvia come amministratore'
+    Write-Host '  A  Esegui come amministratore'
     Write-Host '  Q  Esci'
     Write-Host ''
     $scelta = (Read-Host '  Scelta').Trim().ToUpper()
