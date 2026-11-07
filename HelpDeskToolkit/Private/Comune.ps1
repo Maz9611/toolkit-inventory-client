@@ -9,6 +9,7 @@ $script:HDInvariante = [System.Globalization.CultureInfo]::InvariantCulture
 function Get-HDConfigPredefinita {
     @{
         CartellaReport  = ''
+        ProponiAmministratore = $true
         Censimento      = @{
             Cartella       = ''
             ModelloExcel   = ''

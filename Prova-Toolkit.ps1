@@ -21,10 +21,32 @@ Eseguilo due volte: da utente normale e "come amministratore".
 [CmdletBinding()]
 param(
     [switch]$SenzaInternet,
-    [switch]$SaltaPester
+    [switch]$SaltaPester,
+    [switch]$NonChiedereAmministratore
 )
 
 $ErrorActionPreference = 'Stop'
+
+# La prova completa va fatta come amministratore (SMART, TPM e BitLocker): lo propone subito
+$sonoAmministratore = $false
+try { $sonoAmministratore = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }
+catch { $sonoAmministratore = $false }
+if (-not $sonoAmministratore -and -not $NonChiedereAmministratore -and [Environment]::UserInteractive) {
+    Write-Host ''
+    Write-Host ' Da amministratore la prova legge anche SMART dei dischi, TPM e BitLocker.' -ForegroundColor Cyan
+    $scelta = Read-Host ' Ripartire come amministratore? (N = prova da utente normale) [S/n]'
+    if ($scelta -notmatch '^[nN]') {
+        try {
+            $argomenti = @('-NoProfile', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $PSCommandPath))
+            if ($SenzaInternet) { $argomenti += '-SenzaInternet' }
+            if ($SaltaPester) { $argomenti += '-SaltaPester' }
+            Start-Process -FilePath 'powershell.exe' -ArgumentList $argomenti -Verb RunAs -ErrorAction Stop
+            Write-Host ' La prova continua nella nuova finestra (amministratore): questa si può chiudere.' -ForegroundColor Green
+            return
+        }
+        catch { Write-Host ' Avvio come amministratore annullato: continuo da utente normale.' -ForegroundColor Yellow }
+    }
+}
 $radice = $PSScriptRoot
 $cartellaProva = Join-Path (Join-Path ([System.IO.Path]::GetTempPath()) 'HelpDeskToolkit-Prova') (Get-Date -Format 'yyyyMMdd-HHmmss')
 [void][System.IO.Directory]::CreateDirectory($cartellaProva)

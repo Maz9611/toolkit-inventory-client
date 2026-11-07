@@ -64,6 +64,24 @@ function Show-Errore {
     [void][System.Windows.Forms.MessageBox]::Show($Messaggio, 'Toolkit Help Desk', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
 }
 
+function Start-ComeAmministratore {
+    # Riapre il toolkit con i diritti di amministratore: Windows chiede conferma (o la password).
+    # Restituisce $true se è ripartito, $false se la richiesta è stata annullata.
+    $exe = Get-Variable -Name HDPercorsoExe -ValueOnly -ErrorAction SilentlyContinue
+    try {
+        if ($exe) { Start-Process -FilePath $exe -Verb RunAs -ErrorAction Stop }
+        else {
+            $script = Join-Path $PSScriptRoot 'Interfaccia.ps1'
+            Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-WindowStyle', 'Hidden', '-File', ('"{0}"' -f $script)) -Verb RunAs -ErrorAction Stop
+        }
+        return $true
+    }
+    catch {
+        Write-Verbose "Avvio come amministratore annullato: $($_.Exception.Message)"
+        return $false
+    }
+}
+
 function Show-Info {
     param([string]$Messaggio)
     [void][System.Windows.Forms.MessageBox]::Show($Messaggio, 'Toolkit Help Desk', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
@@ -354,6 +372,15 @@ try {
         Import-Module (Join-Path (Join-Path $PSScriptRoot 'HelpDeskToolkit') 'HelpDeskToolkit.psd1') -Force
     }
     $script:Modulo = Get-Module HelpDeskToolkit
+    $script:Amministratore = [bool](& $script:Modulo { Test-HDAmministratore })
+
+    # SMART, TPM e BitLocker precisi solo con i diritti di amministratore: lo propone subito
+    $proponi = [bool](& $script:Modulo { (Get-HDConfig).ProponiAmministratore })
+    if (-not $Verifica -and -not $script:Amministratore -and $proponi) {
+        $domanda = "Avviare il toolkit come amministratore?`n`nCosì legge anche lo SMART dei dischi e, con precisione, TPM e BitLocker. Windows chiederà una conferma o la password di un amministratore.`n`nCon No il toolkit funziona lo stesso, con questi dati limitati."
+        $risposta = [System.Windows.Forms.MessageBox]::Show($domanda, 'Toolkit Help Desk', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
+        if ($risposta -eq [System.Windows.Forms.DialogResult]::Yes -and (Start-ComeAmministratore)) { exit 0 }
+    }
     $script:Record = $null
     $script:Scansione = $null
     $script:UltimoReport = $null
@@ -362,6 +389,7 @@ try {
     [System.Windows.Forms.Application]::EnableVisualStyles()
     $finestra = New-Object System.Windows.Forms.Form
     $finestra.Text = 'Toolkit Help Desk'
+    if ($script:Amministratore) { $finestra.Text = 'Toolkit Help Desk - amministratore' }
     # dimensione adattata alla scala, ma mai più grande dello schermo
     $schermo = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
     $finestra.Size = New-Object System.Drawing.Size([math]::Min((Get-Px 1100), $schermo.Width), [math]::Min((Get-Px 740), $schermo.Height))
@@ -379,10 +407,10 @@ try {
     $alto.Dock = 'Top'
     $alto.Height = Get-Px 52
     $alto.Padding = New-Margini 8 8 8 4
-    $alto.ColumnCount = 5
+    $alto.ColumnCount = 6
     [void]$alto.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
     [void]$alto.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
-    1..3 | ForEach-Object { [void]$alto.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) }
+    1..4 | ForEach-Object { [void]$alto.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) }
     $script:CasellaFile = New-Object System.Windows.Forms.TextBox
     $script:CasellaFile.ReadOnly = $true
     $script:CasellaFile.Dock = 'Fill'
@@ -394,6 +422,9 @@ try {
     $alto.Controls.Add($pulsanteScegli, 2, 0)
     $alto.Controls.Add($pulsanteNuovo, 3, 0)
     $alto.Controls.Add($pulsanteApri, 4, 0)
+    $pulsanteAmministratore = New-Pulsante 'Riavvia come amministratore'
+    $pulsanteAmministratore.Visible = -not $script:Amministratore
+    $alto.Controls.Add($pulsanteAmministratore, 5, 0)
 
     $schede = New-Object System.Windows.Forms.TabControl
     $schede.Dock = 'Fill'
@@ -526,6 +557,7 @@ try {
             }
             else { Show-Info 'Non c''è ancora un censimento: crealo con "Nuovo..."' }
         })
+    $pulsanteAmministratore.Add_Click({ if (Start-ComeAmministratore) { $script:Finestra.Close() } })
     $pulsanteLeggi.Add_Click({ Show-DatiPc })
     $pulsanteSalva.Add_Click({ Save-DatiPc })
     $pulsanteScansiona.Add_Click({ Start-Scansione })

@@ -5,6 +5,9 @@
     # Dove salvare i report della verifica (vuoto = cartella Report del toolkit)
     CartellaReport = ''
 
+    # All'avvio propone di riaprire il programma come amministratore (serve per SMART, TPM e BitLocker)
+    ProponiAmministratore = $true
+
     Censimento     = @{
         # Cartella degli Excel di censimento (vuoto = cartella Censimento del toolkit, cioè sulla chiavetta)
         Cartella         = ''
