@@ -80,7 +80,8 @@ le domande nella finestra nera); **`Importa-Scansione.cmd`** importa un file di 
   Cynet o di altri EDR. Avvisa prima chi gestisce la sicurezza del cliente.
 - `ToolkitHelpDesk.exe` esegue PowerShell al suo interno: alcuni antivirus/EDR possono bloccarlo o
   metterlo in quarantena, soprattutto finché non è firmato. Se gestisci tu la console dell'EDR,
-  aggiungi un'eccezione per l'exe. Vedi anche "Code signing policy".
+  aggiungi un'eccezione per l'exe: ogni release riporta l'impronta SHA256 dell'exe (file
+  `SHA256.txt` e testo della release), da usare per un'eccezione per hash. Vedi anche "Firma del codice".
 
 ## Le colonne dell'Excel
 
@@ -253,14 +254,14 @@ Ogni comando ha la guida: `Get-Help Invoke-ScansioneRete -Full`. Quelli che scri
 
   È quello che controlla `Avvia-Prova.cmd`.
 
-## Code signing policy
+## Firma del codice
 
-Le versioni pubblicate nelle Releases sono create da GitHub Actions direttamente da questo
-repository (`.github/workflows/build.yml`): test, creazione dell'exe e firma.
-
-Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
-[SignPath Foundation](https://signpath.org) *(dopo l'approvazione del progetto da parte di SignPath
-Foundation; fino ad allora l'exe non è firmato)*.
+L'exe **non è firmato digitalmente**. Le versioni nelle Releases sono create da GitHub Actions
+direttamente da questo repository (`.github/workflows/build.yml`: test, creazione dell'exe,
+pacchetti) e ogni release pubblica l'impronta SHA256 dell'exe, così si può verificare che il file
+sia quello creato qui e autorizzarlo negli antivirus/EDR per hash. La build è già pronta per una
+firma con SignPath (`exe/signpath-artifact-configuration.xml`), che si attiva se un giorno il
+progetto avrà un certificato.
 
 - Committers and reviewers: [Maz9611](https://github.com/Maz9611)
 - Approvers: [Maz9611](https://github.com/Maz9611)

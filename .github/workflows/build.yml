@@ -92,12 +92,18 @@ jobs:
           Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP 'sorgente.zip') -DestinationPath $env:RUNNER_TEMP
           Copy-Item -LiteralPath .\ToolkitHelpDesk.exe -Destination $completo
           Compress-Archive -Path $completo -DestinationPath .\dist\helpdesk-toolkit.zip
+          # impronta dell'exe: per verificarlo e per le eccezioni per hash negli antivirus/EDR
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath .\ToolkitHelpDesk.exe).Hash
+          [System.IO.File]::WriteAllText((Join-Path (Resolve-Path dist) 'SHA256.txt'), "$hash  ToolkitHelpDesk.exe`r`n")
+          "SHA256 di ToolkitHelpDesk.exe: $hash"
 
       - name: Carica i pacchetti
         uses: actions/upload-artifact@v6
         with:
           name: pacchetti
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/SHA256.txt
           if-no-files-found: error
 
       - name: Allega i pacchetti alla release
@@ -105,4 +111,12 @@ jobs:
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload $env:GITHUB_REF_NAME dist\ToolkitHelpDesk.zip dist\helpdesk-toolkit.zip --clobber --repo $env:GITHUB_REPOSITORY
+        run: |
+          gh release upload $env:GITHUB_REF_NAME dist\ToolkitHelpDesk.zip dist\helpdesk-toolkit.zip dist\SHA256.txt --clobber --repo $env:GITHUB_REPOSITORY
+          # l'impronta anche nel testo della release, sotto quello scritto da chi l'ha pubblicata
+          $hash = ((Get-Content -LiteralPath dist\SHA256.txt -Raw) -split '\s+')[0]
+          $note = (@(gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --json body --jq .body) -join "`n")
+          if ($note -notmatch 'SHA256') {
+            $testo = ($note + "`n`n**SHA256 di ToolkitHelpDesk.exe:** ``$hash``").Trim()
+            gh release edit $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --notes $testo
+          }
