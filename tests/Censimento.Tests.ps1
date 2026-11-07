@@ -39,6 +39,27 @@
 }
 AfterAll { . (Join-Path $PSScriptRoot 'Termina.ps1') }
 
+Describe 'PC assemblati: modello e produttore dalla scheda madre' {
+    It 'usa la scheda madre quando il modello è un segnaposto' {
+        InModuleScope HelpDeskToolkit {
+            Get-HDModelloLeggibile -Produttore 'ASUS' -Modello 'System Product Name' -SchedaMadre 'ROG STRIX X870E-E GAMING WIFI' | Should -Be 'ROG STRIX X870E-E GAMING WIFI (scheda madre)'
+            Get-HDModelloLeggibile -Produttore 'To Be Filled By O.E.M.' -Modello 'To Be Filled By O.E.M.' -SchedaMadre 'B650M Pro RS' | Should -Be 'B650M Pro RS (scheda madre)'
+            Get-HDModelloLeggibile -Produttore 'Dell Inc.' -Modello 'OptiPlex 7090' -SchedaMadre '0K240Y' | Should -Be 'OptiPlex 7090'
+            Get-HDModelloLeggibile -Produttore 'ASUS' -Modello 'System Product Name' -SchedaMadre 'Base Board Product Name' | Should -Be ''
+        }
+    }
+
+    It 'nel record: produttore dalla scheda madre se quello del PC manca' {
+        $g = New-GrezzoPC
+        $g.ComputerSystem.Manufacturer = 'System manufacturer'
+        $g.ComputerSystem.Model = 'System Product Name'
+        $g | Add-Member -NotePropertyName SchedaMadre -NotePropertyValue ([pscustomobject]@{ Manufacturer = 'ASUSTeK COMPUTER INC.'; Product = 'PRIME B650-PLUS'; SerialNumber = '' }) -Force
+        $r = ConvertTo-Record $g
+        $r.Manufacturer | Should -Be 'ASUS'
+        $r.Model | Should -Be 'PRIME B650-PLUS (scheda madre)'
+    }
+}
+
 Describe 'Dati del PC -> riga del censimento' {
     It 'compila tutte le colonne automatiche' {
         $r = ConvertTo-Record (New-GrezzoPC)

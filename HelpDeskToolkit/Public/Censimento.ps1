@@ -30,17 +30,22 @@ $script:HDRaccoltaCensimento = {
             $t = [System.Diagnostics.Stopwatch]::StartNew()
             $r = @{ DischiFisici = $null; Smart = $null; SmartPrevisione = $null; DischiWin32 = $null }
             $fisici = $null
+            $amministratore = $false
+            try { $amministratore = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) } catch { $amministratore = $false }
             try { $fisici = @(Get-CimInstance -Namespace 'root/Microsoft/Windows/Storage' -ClassName MSFT_PhysicalDisk -ErrorAction Stop) } catch { $fisici = $null }
             if ($null -ne $fisici) {
                 $r.DischiFisici = @($fisici | Select-Object FriendlyName, MediaType, BusType, Size, HealthStatus)
-                # SMART: contatori di affidabilità (temperatura, usura, ore, errori). Servono i diritti di amministratore.
-                try {
-                    $r.Smart = @($fisici | Where-Object { [string]$_.BusType -ne '7' } | ForEach-Object {
-                            $c = Get-CimAssociatedInstance -InputObject $_ -ResultClassName MSFT_StorageReliabilityCounter -ErrorAction Stop | Select-Object -First 1
-                            [pscustomobject]@{ Disco = [string]$_.FriendlyName; Temperatura = $c.Temperature; Usura = $c.Wear; Ore = $c.PowerOnHours; ErroriLettura = $c.ReadErrorsUncorrected; ErroriScrittura = $c.WriteErrorsUncorrected }
-                        })
+                # SMART: contatori di affidabilità (temperatura, usura, ore, errori). Servono i diritti di
+                # amministratore: senza, Windows restituisce contatori vuoti, quindi non si leggono.
+                if ($amministratore) {
+                    try {
+                        $r.Smart = @($fisici | Where-Object { [string]$_.BusType -ne '7' } | ForEach-Object {
+                                $c = Get-CimAssociatedInstance -InputObject $_ -ResultClassName MSFT_StorageReliabilityCounter -ErrorAction Stop | Select-Object -First 1
+                                [pscustomobject]@{ Disco = [string]$_.FriendlyName; Temperatura = $c.Temperature; Usura = $c.Wear; Ore = $c.PowerOnHours; ErroriLettura = $c.ReadErrorsUncorrected; ErroriScrittura = $c.WriteErrorsUncorrected }
+                            })
+                    }
+                    catch { $r.Smart = $null }
                 }
-                catch { $r.Smart = $null }
             }
             else {
                 try { $r.DischiWin32 = @(Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop | Select-Object Model, Size, MediaType, InterfaceType, Status) } catch { $r.DischiWin32 = $null }

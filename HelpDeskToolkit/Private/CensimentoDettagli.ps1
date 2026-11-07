@@ -331,7 +331,7 @@ function Get-HDOfficeInstallato {
     foreach ($p in @($Programmi | Where-Object { $_ -and $_.DisplayName })) {
         $n = ([string]$p.DisplayName).Trim()
         if ($n -notmatch '(?i)^Microsoft (Office|365)\b') { continue }
-        if ($n -match '(?i)MUI|Proofing|Shared|Language|Click-to-Run|Correzione|Viewer|Access database engine|Web Components|Live Meeting|Interop|Primary Interop|Runtime|Tools') { continue }
+        if ($n -match '(?i)MUI|Proofing|Shared|Language|Click-to-Run|Correzione|Viewer|Access database engine|Web Components|Live Meeting|Interop|Primary Interop|Runtime|Tools|Installer') { continue }
         $n = ($n -replace '(?i)\s+-\s+[a-z]{2}-[a-z]{2}$', '' -replace '^Microsoft Office ', 'Office ').Trim()
         if (-not $nomi.Contains($n)) { $nomi.Add($n) }
     }

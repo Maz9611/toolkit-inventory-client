@@ -81,12 +81,18 @@ function ConvertTo-HDProduttore {
 }
 
 function Get-HDModelloLeggibile {
-    # Lenovo mette in Model il codice macchina (20XW00GBIX): il nome vero è in Version
-    param([string]$Produttore, [string]$Modello, [string]$VersioneProdotto)
+    # Lenovo mette in Model il codice macchina (20XW00GBIX): il nome vero è in Version.
+    # Nei PC assemblati il modello è un segnaposto ("System Product Name"): si usa la scheda madre.
+    param([string]$Produttore, [string]$Modello, [string]$VersioneProdotto, [string]$SchedaMadre)
     $m = ([string]$Modello).Trim()
     $v = ([string]$VersioneProdotto).Trim()
+    $segnaposto = '^(?i)(system product name|to be filled.*|default string|not applicable|not specified|none|o\.?e\.?m\.?|base board product name)$'
     if ($Produttore -match '^lenovo' -and $v -and $v -notmatch '^(?i)(lenovo|none|not available|to be filled.*|default string)$') { return $v }
-    if ($m -match '^(?i)(system product name|to be filled.*|default string|not applicable|none|o\.?e\.?m\.?)$') { return '' }
+    if (-not $m -or $m -match $segnaposto) {
+        $scheda = ([string]$SchedaMadre).Trim()
+        if ($scheda -and $scheda -notmatch $segnaposto) { return "$scheda (scheda madre)" }
+        return ''
+    }
     $m
 }
 
@@ -348,6 +354,13 @@ function ConvertTo-HDRecordCensimento {
     if ($cs) { $tipo = Get-HDTipoDispositivo -ChassisTypes $Grezzo.Chassis -PCSystemType $cs.PCSystemType -SistemaOperativo $caption -Client $TipoClient -Server $TipoServer }
     $serialeBios = ''
     if ($Grezzo.Bios) { $serialeBios = ([string]$Grezzo.Bios.SerialNumber).Trim() }
+    # PC assemblati: produttore e modello dalla scheda madre se quelli del PC sono segnaposto
+    $schedaMadre = ''
+    $produttore = ConvertTo-HDProduttore $produttoreGrezzo
+    if ($Grezzo.SchedaMadre) {
+        $schedaMadre = [string]$Grezzo.SchedaMadre.Product
+        if (-not $produttore) { $produttore = ConvertTo-HDProduttore ([string]$Grezzo.SchedaMadre.Manufacturer) }
+    }
     $extra = ConvertTo-HDDettagliPC -Grezzo $Grezzo -SistemaOperativo $caption -Server ($tipo -eq $TipoServer -or $caption -match '(?i)server') -Processore ([string](@($cpu) | Select-Object -First 1).Name)
 
     [pscustomobject]@{
@@ -357,8 +370,8 @@ function ConvertTo-HDRecordCensimento {
         TipoIP            = $tipoIp
         MAC               = $mac
         DeviceType        = $tipo
-        Manufacturer      = (ConvertTo-HDProduttore $produttoreGrezzo)
-        Model             = (Get-HDModelloLeggibile -Produttore $produttoreGrezzo -Modello $modelloGrezzo -VersioneProdotto $versioneProdotto)
+        Manufacturer      = $produttore
+        Model             = (Get-HDModelloLeggibile -Produttore $produttoreGrezzo -Modello $modelloGrezzo -VersioneProdotto $versioneProdotto -SchedaMadre $schedaMadre)
         NomeUtente        = $utente.Nome
         Utilizzatore      = ''
         Note              = ''

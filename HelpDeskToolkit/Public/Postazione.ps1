@@ -6,7 +6,13 @@ function Get-HDIntestazioneVerifica {
     $dominio = ''
     $serie = ''
     if ($Dati.CS) {
-        $modello = Join-HDProduttoreModello $Dati.CS.Manufacturer $Dati.CS.Model
+        $scheda = ''
+        $produttore = ConvertTo-HDProduttore ([string]$Dati.CS.Manufacturer)
+        if ($Dati.SchedaMadre) {
+            $scheda = [string]$Dati.SchedaMadre.Product
+            if (-not $produttore) { $produttore = ConvertTo-HDProduttore ([string]$Dati.SchedaMadre.Manufacturer) }
+        }
+        $modello = Join-HDProduttoreModello $produttore (Get-HDModelloLeggibile -Produttore ([string]$Dati.CS.Manufacturer) -Modello ([string]$Dati.CS.Model) -SchedaMadre $scheda)
         if ($Dati.CS.PartOfDomain) { $dominio = [string]$Dati.CS.Domain } else { $dominio = 'Nessuno (gruppo di lavoro)' }
     }
     if ($Dati.Bios) { $serie = Get-HDNumeroSerie $Dati.Bios.SerialNumber }
@@ -103,14 +109,14 @@ function ConvertTo-HDHtmlVerifica {
         $fare = ''
         if ($e.Suggerimento) { $fare = '<p class="fare"><b>Cosa fare:</b> {0}</p>' -f (& $h $e.Suggerimento) }
         '<article class="voce v-{0}"><div class="testa"><span class="nome">{1}</span><span class="stato t-{0}">{2}</span><span class="area">{3}</span></div><p>{4}</p>{5}</article>' -f `
-            $classe, (& $h $e.Controllo), (& $h $e.Stato), (& $h $e.Area), (& $h $e.Dettaglio), $fare
+            $classe, (& $h $e.Controllo), (& $h $e.Stato), (& $h $e.Area), ((& $h $e.Dettaglio) -replace ' \| ', ' &middot; '), $fare
     }
     $righe = foreach ($e in $altri) {
         $classe = (Get-HDClasseStato $e.Stato) -replace '^s-', ''
         $nota = ''
         if ($e.Stato -eq 'NON VERIFICATO') { $nota = ' <span class="t-{0}">(non verificato)</span>' -f $classe }
         if ($e.Suggerimento -and $e.Stato -ne 'OK') { $nota += '<div class="nota">{0}</div>' -f (& $h $e.Suggerimento) }
-        '<tr><td class="controllo"><i class="punto c-{0}"></i>{1}</td><td>{2}{3}</td><td class="area">{4}</td></tr>' -f $classe, (& $h $e.Controllo), (& $h $e.Dettaglio), $nota, (& $h $e.Area)
+        '<tr><td class="controllo"><i class="punto c-{0}"></i>{1}</td><td>{2}{3}</td><td class="area">{4}</td></tr>' -f $classe, (& $h $e.Controllo), ((& $h $e.Dettaglio) -replace ' \| ', ' &middot; '), $nota, (& $h $e.Area)
     }
     $sezioneProblemi = ''
     if ($problemi.Count -gt 0) { $sezioneProblemi = "<h2>Da sistemare</h2>`n" + ($voci -join "`n") }
