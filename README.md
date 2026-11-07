@@ -116,31 +116,31 @@ le domande nella finestra nera); **`Importa-Scansione.cmd`** importa un file di 
 
 ### Gli altri fogli: Riepilogo, Dettagli, Software e Storico
 
-**Riepilogo**: cosa c'è da sistemare nel parco PC, una riga per punto, dai più urgenti. Si
-**ricalcola da solo a ogni scrittura dell'Excel**, quindi non scriverci dentro.
+**Riepilogo**: una riga per PC con i problemi trovati, scritti in breve. In "Urgente" quelli da
+sistemare subito, in "Da controllare" il resto; prima i PC messi peggio. Si **ricalcola da solo a ogni
+scrittura dell'Excel**, quindi non scriverci dentro.
 
-| Priorità | Da controllare | N. PC | PC | Cosa fare |
-|---|---|---|---|---|
-| Urgente | Windows non riceve più aggiornamenti di sicurezza | 3 | `PC-01 (Windows 10, compatibile con Windows 11), ...` | passare a Windows 11 o sostituire |
-| Urgente | Dischi a rischio di guasto | 1 | `PC-07` | copia dei dati e sostituzione |
-| Da pianificare | BitLocker non attivo | 4 | `PC-02 (portatile), ...` | attivarlo, prima sui portatili |
-| Da sapere | Programmi di accesso remoto | 2 | `PC-03 (TeamViewer), ...` | verificare che siano autorizzati |
+| Hostname | Utilizzatore | Urgente | Da controllare |
+|---|---|---|---|
+| PC-07 | Mario Rossi | `Disco a rischio di guasto: WDC WD10EZEX; Windows 10 senza aggiornamenti di sicurezza (compatibile con Windows 11)` | `L'utente mario è amministratore; BitLocker non attivo (portatile)` |
+| PC-02 | Anna Bianchi | | `Desktop remoto (RDP) attivo; TeamViewer installato` |
 
-I punti controllati: dischi a rischio, Windows senza aggiornamenti di sicurezza (Windows 10 e versioni
-vecchie di Windows 11), antivirus spento, Cynet mancante (solo dove Cynet è in uso), disco pieno o
-quasi, Windows non attivato, aggiornamenti in ritardo, BitLocker spento, utente amministratore del
-PC, Office non più supportato, batteria usurata, poca RAM, programmi di accesso remoto, BIOS fermo da
-anni, PC non censiti da mesi. Le soglie sono in `config.psd1`.
+- **Urgente:** disco a rischio di guasto, Windows senza aggiornamenti di sicurezza (Windows 10 e
+  versioni vecchie di Windows 11), antivirus spento, Cynet non installato (solo dove Cynet è in uso),
+  disco pieno, Windows non attivato.
+- **Da controllare:** aggiornamenti di Windows fermi, disco quasi pieno, BitLocker non attivo,
+  utente amministratore del PC, Desktop remoto (RDP) attivo, programmi di accesso remoto, Office non
+  più supportato, batteria usurata, poca RAM, BIOS vecchio, PC non censito da mesi.
+- Le soglie (RAM minima, anni del BIOS, mesi senza censimento, spazio su disco) sono in `config.psd1`.
 
 **Riepilogo per il cliente**: il pulsante "Riepilogo per il cliente" (o `R` nel menu testuale) crea
-una pagina da stampare o salvare in PDF, nella cartella `Report`: gli stessi punti con i PC
-interessati e cosa fare, il parco PC in numeri, i cambiamenti degli ultimi 90 giorni e l'elenco dei
-PC.
+una pagina da stampare o salvare in PDF, nella cartella `Report`: quanti PC hanno ogni problema, i
+problemi PC per PC, il parco PC in numeri, i cambiamenti degli ultimi 90 giorni e l'elenco dei PC.
 
-**Storico**: una riga per ogni cambiamento trovato da un censimento all'altro: primo censimento di
-un PC, RAM, disco, processore, sistema operativo, utente, BitLocker, monitor, Office, antivirus,
-amministratori, programmi installati e disinstallati. Le righe si aggiungono in fondo, quelle vecchie
-restano.
+**Storico**: una riga per ogni cambiamento trovato da un censimento all'altro, in una frase:
+`RAM: 8 GB → 16 GB`, `BitLocker: C: non attiva → C: attiva`, `Monitor: aggiunto LG 27UL500`,
+`Programmi installati: AnyDesk`. Il primo censimento di un PC non è un cambiamento e non viene scritto.
+Le righe si aggiungono in fondo, quelle vecchie restano.
 
 Ogni censimento sul PC scrive anche:
 

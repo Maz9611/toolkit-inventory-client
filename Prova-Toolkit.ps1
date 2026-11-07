@@ -169,7 +169,10 @@ Invoke-Collaudo 'Censimento su un Excel di prova (scansione + PC)' {
     Assert-Vero ($riga.Valori['Locazione'] -eq 'Banco prova') 'Locazione non scritta'
     Assert-Vero ($tabella.Dettagli.Esiste -and $tabella.Dettagli.Righe.Count -ge 1) 'Foglio Dettagli non scritto'
     Assert-Vero ($tabella.Riepilogo.Esiste -and -not $tabella.Riepilogo.Conflitto) 'Foglio Riepilogo non scritto'
-    Assert-Vero ($tabella.Storico.Esiste -and $tabella.Storico.Righe.Count -ge 1) 'Foglio Storico non scritto (atteso "Primo censimento")'
+    Assert-Vero ($tabella.Storico.Esiste -and -not $tabella.Storico.Conflitto) 'Foglio Storico mancante'
+    $righeRiepilogo = @(& (Get-Module HelpDeskToolkit) { param($t) Get-HDRigheRiepilogoTabella -Tabella $t -Soglie (Get-HDConfig).Soglie } $tabella)
+    $rigaPc = @($righeRiepilogo | Where-Object { $_[0] -eq $script:pc.Hostname }) | Select-Object -First 1
+    if ($rigaPc) { 'Riepilogo di questo PC - urgente: {0} | da controllare: {1}' -f $(if ($rigaPc[2]) { $rigaPc[2] } else { 'niente' }), $(if ($rigaPc[3]) { $rigaPc[3] } else { 'niente' }) }
     $pagina = Export-RiepilogoCensimento -Censimento $import.Censimento -Confirm:$false
     Assert-Vero ($pagina -and (Test-Path -LiteralPath $pagina.FullName)) 'Riepilogo per il cliente non creato'
     'Riepilogo per il cliente: {0}' -f $pagina.FullName

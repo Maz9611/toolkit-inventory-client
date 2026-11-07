@@ -392,9 +392,11 @@ h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: v
 .voce { border-left: 3px solid var(--filo); padding: 2px 0 2px 16px; margin: 0 0 18px; break-inside: avoid; }
 .voce.v-critico { border-color: var(--critico); } .voce.v-attenzione { border-color: var(--attenzione); } .voce.v-errore { border-color: var(--errore); }
 .voce.v-info { border-color: var(--info); }
-ul.pc { list-style: none; margin: 8px 0 0; padding: 0; columns: 2; column-gap: 32px; }
-ul.pc li { break-inside: avoid; padding: 2px 0; }
-ul.pc b { color: var(--inchiostro); font-weight: 600; }
+ul.fatti { list-style: none; margin: 0; padding: 0; }
+ul.fatti li { padding: 1px 0; }
+ul.fatti .punto { margin-right: 8px; position: relative; top: -1px; }
+td b { color: var(--inchiostro); font-weight: 600; }
+th.num { text-align: right; }
 .nota { color: var(--tenue); font-size: 13px; }
 .esito .sotto { color: var(--tenue); margin-top: 2px; }
 td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -423,7 +425,7 @@ td .nota { color: var(--tenue); font-size: 13px; margin-top: 2px; }
   .pagina { margin: 0; padding: 24px 18px; border: 0; border-radius: 0; }
   .testata { flex-direction: column; align-items: flex-start; } .testata .quando { text-align: left; }
   .dati { grid-template-columns: 1fr; } td.area { display: none; } td.controllo { white-space: normal; }
-  ul.pc { columns: 1; } .tabella-larga { display: block; overflow-x: auto; }
+  .tabella-larga { display: block; overflow-x: auto; }
 }
 @media print {
   body { background: #fff; font-size: 11.5px; } .pagina { margin: 0; padding: 0; border: 0; max-width: none; }

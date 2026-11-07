@@ -1,27 +1,24 @@
-﻿# Censimento: riepilogo dei punti da sistemare nel parco PC (foglio "Riepilogo" dell'Excel, ricalcolato a
-# ogni scrittura, e report HTML da consegnare) e storico dei cambiamenti tra un censimento e l'altro
+﻿# Censimento: riepilogo dei problemi del parco PC (foglio "Riepilogo" dell'Excel, una riga per PC, ricalcolato
+# a ogni scrittura, e report HTML da consegnare) e storico dei cambiamenti tra un censimento e l'altro
 # (foglio "Storico", una riga per cambiamento). Funzioni pure: lavorano sulle tabelle lette dall'Excel.
 
 $script:HDFoglioRiepilogo = 'Riepilogo'
 $script:HDFoglioStorico = 'Storico'
 
-# Foglio Riepilogo: una riga per punto da sistemare (riscritto ogni volta, non va modificato a mano)
+# Foglio Riepilogo: una riga per PC con i suoi problemi (riscritto ogni volta, non va modificato a mano)
 $script:HDColonneRiepilogo = @(
-    New-HDColonnaFoglio 'Priorita' 'Priorità' 15
-    New-HDColonnaFoglio 'Punto' 'Da controllare' 44
-    New-HDColonnaFoglio 'NumeroPC' 'N. PC' 8 -Numerica
-    New-HDColonnaFoglio 'PC' 'PC' 60
-    New-HDColonnaFoglio 'CosaFare' 'Cosa fare' 70
+    New-HDColonnaFoglio 'Hostname' 'Hostname' 20
+    New-HDColonnaFoglio 'Utilizzatore' 'Utilizzatore' 22
+    New-HDColonnaFoglio 'Urgente' 'Urgente' 60
+    New-HDColonnaFoglio 'DaControllare' 'Da controllare' 90
 )
 
-# Foglio Storico: una riga per cambiamento, si aggiunge in fondo a ogni censimento
+# Foglio Storico: una riga per cambiamento (una frase), si aggiunge in fondo a ogni censimento
 $script:HDColonneStorico = @(
     New-HDColonnaFoglio 'Data' 'Data' 17
-    New-HDColonnaFoglio 'Hostname' 'Hostname' 18
-    New-HDColonnaFoglio 'SerialNumber' 'Serial Number' 16
-    New-HDColonnaFoglio 'Campo' 'Cosa è cambiato' 26
-    New-HDColonnaFoglio 'Prima' 'Prima' 46
-    New-HDColonnaFoglio 'Dopo' 'Dopo' 46
+    New-HDColonnaFoglio 'Hostname' 'Hostname' 20
+    New-HDColonnaFoglio 'SerialNumber' 'Serial Number' 18
+    New-HDColonnaFoglio 'Cambiamento' 'Cosa è cambiato' 100
 )
 
 # Fine degli aggiornamenti di sicurezza di Windows 11 per versione: Home/Pro, Enterprise/Education
@@ -38,6 +35,17 @@ $script:HDFineSupportoWindows10 = '2025-10-14'
 # (IP, spazio libero, stampanti, data degli aggiornamenti) o non dicono niente di nuovo.
 $script:HDCampiStorico = @('Hostname', 'SerialNumber', 'Manufacturer', 'Model', 'NomeUtente', 'Dominio', 'OS', 'OSVersion', 'Memory', 'Processor', 'DiskSize', 'Cynet', 'BitLocker')
 $script:HDCampiStoricoDettagli = @('DischiFisici', 'Monitor', 'Bios', 'Office', 'AttivazioneWindows', 'Antivirus', 'AccessoRemoto', 'Amministratori')
+
+# Nomi dei campi nelle frasi dello storico, e campi che sono elenchi (con il loro separatore)
+$script:HDEtichetteStorico = @{
+    Hostname = 'Nome del PC'; SerialNumber = 'Numero di serie'; Manufacturer = 'Produttore'; Model = 'Modello'
+    NomeUtente = 'Utente'; Dominio = 'Dominio'; OS = 'Sistema operativo'; OSVersion = 'Versione di Windows'
+    Memory = 'RAM'; Processor = 'Processore'; DiskSize = 'Dischi'; Cynet = 'Cynet'; BitLocker = 'BitLocker'
+    DischiFisici = 'Dischi fisici'; Monitor = 'Monitor'; Bios = 'BIOS'; Office = 'Office'
+    AttivazioneWindows = 'Attivazione di Windows'; Antivirus = 'Antivirus'; AccessoRemoto = 'Accesso remoto'
+    Amministratori = 'Amministratori'
+}
+$script:HDCampiElencoStorico = @{ BitLocker = ';'; DischiFisici = ';'; Monitor = ';'; Office = ';'; Antivirus = ';'; AccessoRemoto = ';'; Amministratori = ',' }
 
 #region Riepilogo
 
@@ -128,9 +136,35 @@ function Get-HDPcCensiti {
     }
 }
 
+function Join-HDElenco {
+    # @('A', 'B', 'C') -> "A, B e C"
+    param([string[]]$Voci)
+    $v = @($Voci | Where-Object { $_ })
+    if ($v.Count -le 1) { return ($v -join '') }
+    (($v | Select-Object -First ($v.Count - 1)) -join ', ') + ' e ' + $v[-1]
+}
+
+function Get-HDDischiARischio {
+    # Nomi dei dischi segnalati da SMART o da Windows ("ATTENZIONE", "GUASTO"); "" se c'è solo la previsione
+    # di guasto dello SMART senza nome. $null se nessun disco è a rischio.
+    param([string]$Smart, [string]$DischiFisici)
+    $nomi = New-Object System.Collections.Generic.List[string]
+    $trovato = $false
+    foreach ($voce in @(([string]$Smart -split ';\s*') + ([string]$DischiFisici -split ';\s*'))) {
+        if ($voce -cnotmatch 'GUASTO|ATTENZIONE') { continue }
+        $trovato = $true
+        if ($voce -cmatch '^GUASTO PREVISTO') { continue }
+        $nome = ($voce -replace '(:\s.*|\s\(.*)$', '').Trim()
+        if ($nome -and -not $nomi.Contains($nome)) { $nomi.Add($nome) }
+    }
+    if (-not $trovato) { return $null }
+    Join-HDElenco $nomi.ToArray()
+}
+
 function Get-HDPuntiRiepilogo {
-    # Punti da sistemare nel parco PC, dai più urgenti: Priorita (Urgente, Da pianificare, Da sapere), Punto,
-    # CosaFare e PC (Nome, Utilizzatore, Dettaglio). Solo i punti che riguardano almeno un PC.
+    # Problemi del parco PC, controllo per controllo: Priorita (Urgente, Da controllare), Punto (nome breve,
+    # per contare i PC) e PC (Nome, Utilizzatore, Fatto: la frase precisa per quel PC, es. "BitLocker non
+    # attivo (portatile)"). Solo i controlli che riguardano almeno un PC.
     param([object[]]$PC, [hashtable]$Soglie, [datetime]$Adesso = (Get-Date))
     $s = Get-HDSoglieRiepilogo $Soglie
     $usaCynet = @($PC | Where-Object { $_ -and [string]$_.Valori['Cynet'] -match '^S' }).Count -gt 0
@@ -143,91 +177,79 @@ function Get-HDPuntiRiepilogo {
     }
     $controlli = @(
         @{
-            Priorita = 'Urgente'; Punto = 'Dischi a rischio di guasto'
-            Cosa     = 'Fare subito una copia dei dati e sostituire il disco.'
-            Prova    = { param($p) ([string]$p.Dettagli['Smart'] + ' ' + [string]$p.Dettagli['DischiFisici']) -cmatch 'GUASTO|ATTENZIONE' }
+            Priorita = 'Urgente'; Punto = 'Disco a rischio di guasto'
+            Prova    = {
+                param($p)
+                $nomi = Get-HDDischiARischio -Smart $p.Dettagli['Smart'] -DischiFisici $p.Dettagli['DischiFisici']
+                if ($null -eq $nomi) { return $false }
+                if (-not $nomi) { return 'Disco a rischio di guasto (lo segnala lo SMART)' }
+                'Disco a rischio di guasto: ' + $nomi
+            }
         }
         @{
-            Priorita = 'Urgente'; Punto = 'Windows non riceve più aggiornamenti di sicurezza'
-            Cosa     = 'Passare a Windows 11 i PC compatibili (l''aggiornamento è gratuito) e sostituire gli altri; nel frattempo si possono acquistare gli aggiornamenti estesi (ESU).'
+            Priorita = 'Urgente'; Punto = 'Windows senza aggiornamenti di sicurezza'
             Prova    = {
                 param($p)
                 $vecchio = Get-HDWindowsSenzaAggiornamenti -SistemaOperativo $p.Valori['OS'] -Versione $p.Valori['OSVersion'] -Adesso $Adesso
-                if (-not $vecchio -or $vecchio -like 'Windows 11*') { return $false }
+                if (-not $vecchio) { return $false }
+                $fatto = $vecchio + ' senza aggiornamenti di sicurezza'
+                if ($vecchio -like 'Windows 11*') { return $fatto }
                 $w11 = [string]$p.Dettagli['Windows11']
-                if ($w11 -match '^S') { return "$vecchio, compatibile con Windows 11" }
-                if ($w11 -match '^No') { return "$vecchio, non compatibile con Windows 11" }
-                $vecchio
+                if ($w11 -match '^S') { return $fatto + ' (compatibile con Windows 11)' }
+                if ($w11 -match '^No') { return $fatto + ' (non compatibile con Windows 11)' }
+                $fatto
             }
         }
         @{
-            Priorita = 'Urgente'; Punto = 'Versione di Windows 11 non più aggiornata'
-            Cosa     = 'Installare l''ultima versione di Windows 11 da Windows Update (è gratuita).'
-            Prova    = {
-                param($p)
-                $vecchio = Get-HDWindowsSenzaAggiornamenti -SistemaOperativo $p.Valori['OS'] -Versione $p.Valori['OSVersion'] -Adesso $Adesso
-                if ($vecchio -like 'Windows 11*') { return $vecchio }
-                $false
-            }
-        }
-        @{
-            Priorita = 'Urgente'; Punto = 'Antivirus assente o spento'
-            Cosa     = 'Installare o riattivare l''antivirus e controllare che si aggiorni.'
+            Priorita = 'Urgente'; Punto = 'Antivirus spento'
             Prova    = {
                 param($p)
                 $av = [string]$p.Dettagli['Antivirus']
-                if (-not $av) { return $false }
-                if ($av -notmatch '\(attivo') { return $av }
-                $false
+                if (-not $av -or $av -match '\(attivo') { return $false }
+                $nomi = @($av -split ';\s*' | ForEach-Object { ($_ -replace '\s\(.*$', '').Trim() } | Where-Object { $_ })
+                'Antivirus spento: ' + (Join-HDElenco $nomi)
             }
         }
         @{
             Priorita = 'Urgente'; Punto = 'Cynet non installato'
-            Cosa     = 'Installare l''agente Cynet.'
             # solo dove Cynet è in uso (almeno un PC lo ha): per gli altri clienti non è un problema
-            Prova    = { param($p) $usaCynet -and [string]$p.Valori['Cynet'] -eq 'No' }
+            Prova    = { param($p) if ($usaCynet -and [string]$p.Valori['Cynet'] -eq 'No') { 'Cynet non installato' } else { $false } }
         }
         @{
             Priorita = 'Urgente'; Punto = 'Disco pieno'
-            Cosa     = 'Liberare spazio subito: con il disco pieno Windows non si aggiorna e i programmi possono bloccarsi.'
             Prova    = {
                 param($p)
                 $pieni = @(Get-HDVolumiTesto $p.Valori['FreeDiskPct'] | Where-Object { $_.Pct -lt $s.DiscoCriticoPct -or $_.LiberoGB -lt $s.DiscoCriticoGB })
                 if ($pieni.Count -eq 0) { return $false }
-                (@($pieni | ForEach-Object { '{0} {1} GB liberi' -f $_.Unita, $_.LiberoGB }) -join ', ')
+                (@($pieni | ForEach-Object { 'Disco {0} pieno ({1} GB liberi)' -f $_.Unita, $_.LiberoGB }) -join '; ')
             }
         }
         @{
             Priorita = 'Urgente'; Punto = 'Windows non attivato'
-            Cosa     = 'Attivare Windows con una licenza valida.'
-            Prova    = { param($p) [string]$p.Dettagli['AttivazioneWindows'] -like 'Non attivato*' }
+            Prova    = { param($p) if ([string]$p.Dettagli['AttivazioneWindows'] -like 'Non attivato*') { 'Windows non attivato' } else { $false } }
         }
         @{
-            Priorita = 'Da pianificare'; Punto = 'Aggiornamenti di Windows in ritardo'
-            Cosa     = 'Controllare Windows Update su questi PC: spazio su disco, errori in Impostazioni, servizio disattivato.'
+            Priorita = 'Da controllare'; Punto = 'Aggiornamenti di Windows fermi'
             Prova    = {
                 param($p)
                 $ultimo = ConvertFrom-HDDataTesto $p.Dettagli['Aggiornamento']
                 if (-not $ultimo) { return $false }
                 if (((& $quando $p) - $ultimo).TotalDays -le $s.AggiornamentiGiorniAttenzione) { return $false }
-                'ultimo il ' + $ultimo.ToString('dd/MM/yyyy', $script:HDInvariante)
+                'Aggiornamenti di Windows fermi dal ' + $ultimo.ToString('dd/MM/yyyy', $script:HDInvariante)
             }
         }
         @{
-            Priorita = 'Da pianificare'; Punto = 'Disco con poco spazio libero'
-            Cosa     = 'Fare pulizia o spostare i dati: Windows Update ha bisogno di almeno 10-20 GB liberi.'
+            Priorita = 'Da controllare'; Punto = 'Disco quasi pieno'
             Prova    = {
                 param($p)
                 $volumi = @(Get-HDVolumiTesto $p.Valori['FreeDiskPct'])
-                if (@($volumi | Where-Object { $_.Pct -lt $s.DiscoCriticoPct -or $_.LiberoGB -lt $s.DiscoCriticoGB }).Count -gt 0) { return $false }
-                $pochi = @($volumi | Where-Object { $_.Pct -lt $s.DiscoAttenzionePct -or $_.LiberoGB -lt $s.DiscoAttenzioneGB })
+                $pochi = @($volumi | Where-Object { -not ($_.Pct -lt $s.DiscoCriticoPct -or $_.LiberoGB -lt $s.DiscoCriticoGB) -and ($_.Pct -lt $s.DiscoAttenzionePct -or $_.LiberoGB -lt $s.DiscoAttenzioneGB) })
                 if ($pochi.Count -eq 0) { return $false }
-                (@($pochi | ForEach-Object { '{0} {1} GB liberi' -f $_.Unita, $_.LiberoGB }) -join ', ')
+                (@($pochi | ForEach-Object { 'Disco {0} quasi pieno ({1} GB liberi)' -f $_.Unita, $_.LiberoGB }) -join '; ')
             }
         }
         @{
-            Priorita = 'Da pianificare'; Punto = 'BitLocker non attivo'
-            Cosa     = 'Attivare BitLocker, prima di tutto sui portatili, e conservare la chiave di ripristino in un posto sicuro: se il PC viene perso o rubato i dati restano protetti.'
+            Priorita = 'Da controllare'; Punto = 'BitLocker non attivo'
             Prova    = {
                 param($p)
                 $b = [string]$p.Valori['BitLocker']
@@ -237,58 +259,63 @@ function Get-HDPuntiRiepilogo {
                 # "non attiva", "sospesa", "decrittografia in corso", "in attesa di attivazione": dati non protetti
                 if ($sistema.Trim() -notmatch '^\w:\s*(non attiva|sospesa|decrittografia|in attesa)') { return $false }
                 $batteria = [string]$p.Dettagli['Batteria']
-                if ($batteria -and $batteria -ne 'Nessuna') { return 'portatile' }
-                $true
+                if ($batteria -and $batteria -ne 'Nessuna') { return 'BitLocker non attivo (portatile)' }
+                'BitLocker non attivo'
             }
         }
         @{
-            Priorita = 'Da pianificare'; Punto = 'L''utente lavora come amministratore del PC'
-            Cosa     = 'Dare all''utente un account standard e usare un account separato per installare i programmi: limita molto i danni di virus e ransomware.'
-            Prova    = { param($p) [string]$p.Dettagli['Amministratori'] -match 'utente del PC' }
+            Priorita = 'Da controllare'; Punto = 'Utente amministratore del PC'
+            Prova    = {
+                param($p)
+                $a = [string]$p.Dettagli['Amministratori']
+                if ($a -notmatch '(?:^|,\s*)([^,(]+?)\s\((?:[^)]*,\s*)?utente del PC') { return $false }
+                "L'utente {0} è amministratore" -f $Matches[1].Trim()
+            }
         }
         @{
-            Priorita = 'Da pianificare'; Punto = 'Office non più supportato'
-            Cosa     = 'Passare a Microsoft 365 o a Office 2024: le versioni vecchie non ricevono più aggiornamenti di sicurezza.'
+            Priorita = 'Da controllare'; Punto = 'Desktop remoto (RDP) attivo'
+            Prova    = { param($p) if ([string]$p.Dettagli['AccessoRemoto'] -match 'Desktop remoto') { 'Desktop remoto (RDP) attivo' } else { $false } }
+        }
+        @{
+            Priorita = 'Da controllare'; Punto = 'Programmi di accesso remoto'
+            Prova    = {
+                param($p)
+                $programmi = @(([string]$p.Dettagli['AccessoRemoto'] -split ';\s*') | Where-Object { $_ -and $_ -ne 'Nessuno' -and $_ -notmatch 'Desktop remoto' })
+                if ($programmi.Count -eq 0) { return $false }
+                if ($programmi.Count -eq 1) { return $programmi[0] + ' installato' }
+                (Join-HDElenco $programmi) + ' installati'
+            }
+        }
+        @{
+            Priorita = 'Da controllare'; Punto = 'Office non più supportato'
             Prova    = {
                 param($p)
                 $o = [string]$p.Dettagli['Office']
-                if ($o -match '(?<!\d)(2007|2010|2013|2016|2019|2021)(?!\d)') { return 'Office ' + $Matches[1] }
+                if ($o -match '(?<!\d)(2007|2010|2013|2016|2019|2021)(?!\d)') { return ('Office {0} non più supportato' -f $Matches[1]) }
                 $false
             }
         }
         @{
-            Priorita = 'Da pianificare'; Punto = 'Batteria del portatile usurata'
-            Cosa     = 'Sostituire la batteria (sotto il 50% della capacità originale dura poco e può gonfiarsi).'
+            Priorita = 'Da controllare'; Punto = 'Batteria usurata'
             Prova    = {
                 param($p)
                 $b = [string]$p.Dettagli['Batteria']
-                if ($b -match '^(\d+)%.*(da sostituire|usurata)') { return $Matches[1] + '%' }
+                if ($b -match '^(\d+)%.*da sostituire') { return ('Batteria al {0}%, da sostituire' -f $Matches[1]) }
+                if ($b -match '^(\d+)%.*usurata') { return ('Batteria al {0}%' -f $Matches[1]) }
                 $false
             }
         }
         @{
-            Priorita = 'Da pianificare'; Punto = 'Poca memoria RAM'
-            Cosa     = 'Aggiungere memoria se il PC lo permette, altrimenti metterlo in lista per la sostituzione.'
+            Priorita = 'Da controllare'; Punto = 'Poca RAM'
             Prova    = {
                 param($p)
                 $gb = Get-HDMemoriaGB $p.Valori['Memory']
-                if ($gb -gt 0 -and $gb -lt ($s.RamMinimaGB - 0.5)) { return ('{0} GB' -f [math]::Round($gb, 1)) }
+                if ($gb -gt 0 -and $gb -lt ($s.RamMinimaGB - 0.5)) { return ('Solo {0} GB di RAM' -f [math]::Round($gb, 1)) }
                 $false
             }
         }
         @{
-            Priorita = 'Da sapere'; Punto = 'Programmi di accesso remoto'
-            Cosa     = 'Verificare che siano autorizzati e protetti (password, account aziendale) e disinstallare quelli che non servono.'
-            Prova    = {
-                param($p)
-                $a = [string]$p.Dettagli['AccessoRemoto']
-                if ($a -and $a -ne 'Nessuno') { return $a }
-                $false
-            }
-        }
-        @{
-            Priorita = 'Da sapere'; Punto = 'BIOS fermo da anni'
-            Cosa     = 'Controllare se il produttore ha aggiornamenti del BIOS (spesso correggono falle di sicurezza); se il PC è a fine vita, metterlo in lista per la sostituzione.'
+            Priorita = 'Da controllare'; Punto = 'BIOS vecchio'
             Prova    = {
                 param($p)
                 $d = ConvertFrom-HDDataTesto $p.Dettagli['Bios']
@@ -298,43 +325,54 @@ function Get-HDPuntiRiepilogo {
             }
         }
         @{
-            Priorita = 'Da sapere'; Punto = 'PC non censiti da tempo'
-            Cosa     = 'Verificare se sono ancora in uso: se sono stati dismessi, scriverlo nelle Note.'
+            Priorita = 'Da controllare'; Punto = 'Non censito da tempo'
             Prova    = {
                 param($p)
                 $d = ConvertFrom-HDDataTesto $p.Dettagli['Rilevato']
                 if (-not $d -or $d -gt $Adesso.AddMonths(-1 * [int]$s.CensimentoMesi)) { return $false }
-                'ultimo censimento il ' + $d.ToString('dd/MM/yyyy', $script:HDInvariante)
+                'Non censito dal ' + $d.ToString('dd/MM/yyyy', $script:HDInvariante)
             }
         }
     )
     foreach ($c in $controlli) {
         $colpiti = New-Object System.Collections.Generic.List[object]
         foreach ($p in @($PC | Where-Object { $_ })) {
-            $esito = & $c.Prova $p
-            if (-not $esito) { continue }
-            $dettaglio = ''
-            if ($esito -is [string]) { $dettaglio = $esito }
-            $colpiti.Add([pscustomobject]@{ Nome = $p.Nome; Utilizzatore = $p.Utilizzatore; Dettaglio = $dettaglio })
+            $fatto = & $c.Prova $p
+            if (-not $fatto) { continue }
+            $colpiti.Add([pscustomobject]@{ Nome = $p.Nome; Utilizzatore = $p.Utilizzatore; Fatto = [string]$fatto })
         }
         if ($colpiti.Count -gt 0) {
-            [pscustomobject]@{ Priorita = $c.Priorita; Punto = $c.Punto; CosaFare = $c.Cosa; PC = $colpiti.ToArray() }
+            [pscustomobject]@{ Priorita = $c.Priorita; Punto = $c.Punto; PC = $colpiti.ToArray() }
         }
     }
 }
 
-function ConvertTo-HDRigheRiepilogo {
-    # Punti del riepilogo -> righe del foglio Riepilogo (una per punto, poi la riga con data e numero di PC)
-    param([object[]]$Punti, [int]$TotalePC, [datetime]$Adesso = (Get-Date))
-    $elencoPunti = @($Punti | Where-Object { $_ })
-    foreach ($p in $elencoPunti) {
-        $elenco = (@($p.PC | ForEach-Object { if ($_.Dettaglio) { '{0} ({1})' -f $_.Nome, $_.Dettaglio } else { $_.Nome } }) -join ', ')
-        if ($elenco.Length -gt $script:HDMassimoCella) { $elenco = $elenco.Substring(0, $script:HDMassimoCella - 20) + '... (elenco accorciato)' }
-        , @($p.Priorita, $p.Punto, [string]@($p.PC).Count, $elenco, $p.CosaFare)
+function Get-HDRiepilogoPerPc {
+    # Un elemento per PC con i suoi problemi (Urgente e DaControllare: le frasi), prima i PC messi peggio
+    param([object[]]$PC, [object[]]$Punti)
+    $perPc = [ordered]@{}
+    foreach ($p in @($PC | Where-Object { $_ })) {
+        if ($perPc.Contains($p.Nome)) { continue }
+        $perPc[$p.Nome] = [pscustomobject]@{ Nome = $p.Nome; Utilizzatore = $p.Utilizzatore; Urgente = (New-Object System.Collections.Generic.List[string]); DaControllare = (New-Object System.Collections.Generic.List[string]) }
     }
-    if ($elencoPunti.Count -eq 0) { , @('', 'Nessun punto da sistemare', '', '', '') }
-    $nota = 'Calcolato il {0} su {1}: si aggiorna da solo a ogni censimento.' -f (Format-HDData $Adesso), (Format-HDQuantita $TotalePC 'PC censito' 'PC censiti')
-    , @('', $nota, '', '', '')
+    foreach ($punto in @($Punti | Where-Object { $_ })) {
+        foreach ($x in @($punto.PC)) {
+            if (-not $perPc.Contains($x.Nome)) { continue }
+            if ($punto.Priorita -eq 'Urgente') { $perPc[$x.Nome].Urgente.Add($x.Fatto) } else { $perPc[$x.Nome].DaControllare.Add($x.Fatto) }
+        }
+    }
+    $perPc.Values | Sort-Object @{ Expression = { $_.Urgente.Count }; Descending = $true }, @{ Expression = { $_.DaControllare.Count }; Descending = $true }, Nome
+}
+
+function ConvertTo-HDRigheRiepilogo {
+    # PC con i loro problemi -> righe del foglio Riepilogo (una per PC), poi la riga con la data
+    param([object[]]$PerPc, [datetime]$Adesso = (Get-Date))
+    $elenco = @($PerPc | Where-Object { $_ })
+    foreach ($p in $elenco) {
+        , @($p.Nome, $p.Utilizzatore, ($p.Urgente.ToArray() -join '; '), ($p.DaControllare.ToArray() -join '; '))
+    }
+    $nota = 'Calcolato il {0} su {1}: si aggiorna da solo a ogni censimento, non scriverci dentro.' -f (Format-HDData $Adesso), (Format-HDQuantita $elenco.Count 'PC censito' 'PC censiti')
+    , @($nota, '', '', '')
 }
 
 function Get-HDRigheRiepilogoTabella {
@@ -343,7 +381,8 @@ function Get-HDRigheRiepilogoTabella {
     $dettagli = @()
     if ($Tabella.Dettagli) { $dettagli = @($Tabella.Dettagli.Righe | Where-Object { $_ }) }
     $pc = @(Get-HDPcCensiti -Righe @($Tabella.Righe | Where-Object { $_ }) -Dettagli $dettagli)
-    ConvertTo-HDRigheRiepilogo -Punti @(Get-HDPuntiRiepilogo -PC $pc -Soglie $Soglie -Adesso $Adesso) -TotalePC $pc.Count -Adesso $Adesso
+    $punti = @(Get-HDPuntiRiepilogo -PC $pc -Soglie $Soglie -Adesso $Adesso)
+    ConvertTo-HDRigheRiepilogo -PerPc @(Get-HDRiepilogoPerPc -PC $pc -Punti $punti) -Adesso $Adesso
 }
 
 function Get-HDStatoFoglioRiscritto {
@@ -423,13 +462,40 @@ function Format-HDElencoBreve {
     '{0} e altri {1}' -f (($n | Select-Object -First $Massimo) -join ', '), ($n.Count - $Massimo)
 }
 
+function Format-HDCambiamento {
+    # Frase dello storico per un campo cambiato: "RAM: 16 GB → 32 GB". Per i campi che sono elenchi solo
+    # cosa è stato aggiunto, tolto o cambiato: "Monitor: aggiunto LG 27UL500; tolto DELL P2419H"
+    param([string]$Campo, [string]$Prima, [string]$Dopo)
+    $etichetta = $script:HDEtichetteStorico[$Campo]
+    if (-not $etichetta) { $etichetta = $Campo }
+    $separatore = $script:HDCampiElencoStorico[$Campo]
+    if (-not $separatore) { return '{0}: {1} → {2}' -f $etichetta, $Prima, $Dopo }
+    # separatore fuori dalle parentesi: "mario (disattivato, utente del PC)" è una voce sola
+    $modello = '{0}\s*(?![^()]*\))' -f [regex]::Escape($separatore)
+    $vecchi = @([regex]::Split([string]$Prima, $modello) | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $nuovi = @([regex]::Split([string]$Dopo, $modello) | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $chiave = { param($v) (($v -replace '(:\s.*|\s\(.*)$', '').Trim()).ToLowerInvariant() }
+    $tolti = @($vecchi | Where-Object { $nuovi -notcontains $_ })
+    $parti = New-Object System.Collections.Generic.List[string]
+    foreach ($a in @($nuovi | Where-Object { $vecchi -notcontains $_ })) {
+        $k = & $chiave $a
+        $stesso = @($tolti | Where-Object { (& $chiave $_) -eq $k }) | Select-Object -First 1
+        if ($stesso) {
+            $parti.Add(('{0} → {1}' -f $stesso, $a))
+            $tolti = @($tolti | Where-Object { $_ -ne $stesso })
+        }
+        else { $parti.Add('aggiunto ' + $a) }
+    }
+    foreach ($t in $tolti) { $parti.Add('tolto ' + $t) }
+    if ($parti.Count -eq 0) { return '{0}: {1} → {2}' -f $etichetta, $Prima, $Dopo }
+    '{0}: {1}' -f $etichetta, ($parti.ToArray() -join '; ')
+}
+
 function Get-HDCambiamenti {
-    # Confronta la foto prima dei censimenti con le tabelle aggiornate: una voce per ogni valore cambiato
-    # (solo se c'era già un valore: riempire una cella vuota non è un cambiamento), una per i PC nuovi e
-    # una per i programmi installati e disinstallati. Data = quella del censimento del PC.
+    # Confronta la foto prima dei censimenti con le tabelle aggiornate: una frase per ogni valore cambiato
+    # e per i programmi installati e disinstallati. Non conta il primo censimento di un PC (anche se la
+    # riga c'era già dalla scansione) né una cella vuota che si riempie. Data = quella del censimento.
     param([Parameter(Mandatory)][hashtable]$Foto, [Parameter(Mandatory)]$Tabella, [datetime]$Adesso = (Get-Date))
-    $titoli = @{}
-    foreach ($c in @($script:HDColonneCensimento) + @($script:HDColonneDettagli)) { if (-not $titoli.ContainsKey($c.Chiave)) { $titoli[$c.Chiave] = $c.Titolo } }
     # data del censimento di ogni PC, dal foglio Dettagli aggiornato
     $date = @{}
     if ($Tabella.Dettagli) {
@@ -450,30 +516,26 @@ function Get-HDCambiamenti {
         $oggi
     }
     $voce = {
-        param($v, [string]$Campo, [string]$Prima, [string]$Dopo)
-        [pscustomobject]@{ Data = (& $dataPc $v); Hostname = [string]$v['Hostname']; SerialNumber = [string]$v['SerialNumber']; Campo = $Campo; Prima = $Prima; Dopo = $Dopo }
+        param($v, [string]$Testo)
+        [pscustomobject]@{ Data = (& $dataPc $v); Hostname = [string]$v['Hostname']; SerialNumber = [string]$v['SerialNumber']; Cambiamento = $Testo }
     }
     $confronta = {
-        param($Righe, [hashtable]$Prima, [string[]]$Campi, [switch]$Nuovi)
+        param($Righe, [hashtable]$Prima, [string[]]$Campi, [switch]$SoloCensiti)
         foreach ($r in @($Righe | Where-Object { $_ })) {
             $vecchi = $Prima[[int]$r.Numero]
-            # primo censimento del PC: riga nuova, oppure riga arrivata dalla scansione (senza sistema operativo)
-            if ($Nuovi -and $r.Valori['OS'] -and ($null -eq $vecchi -or -not $vecchi['OS'])) {
-                $descrizione = @((Join-HDProduttoreModello $r.Valori['Manufacturer'] $r.Valori['Model']), [string]$r.Valori['OS']) | Where-Object { $_ }
-                & $voce $r.Valori 'Primo censimento' '' ($descrizione -join ', ')
-                continue
-            }
             if ($null -eq $vecchi) { continue }
+            # riga arrivata dalla scansione e censita ora: è il primo censimento, non un cambiamento
+            if ($SoloCensiti -and -not $vecchi['OS']) { continue }
             foreach ($k in $Campi) {
                 $o = [string]$vecchi[$k]
                 $n = [string]$r.Valori[$k]
                 if (-not $o -or -not $n) { continue }
                 if ((ConvertTo-HDValoreStorico $k $o) -ceq (ConvertTo-HDValoreStorico $k $n)) { continue }
-                & $voce $r.Valori $titoli[$k] $o $n
+                & $voce $r.Valori (Format-HDCambiamento -Campo $k -Prima $o -Dopo $n)
             }
         }
     }
-    & $confronta $Tabella.Righe $Foto.Principale $script:HDCampiStorico -Nuovi
+    & $confronta $Tabella.Righe $Foto.Principale $script:HDCampiStorico -SoloCensiti
     if ($Tabella.Dettagli) { & $confronta $Tabella.Dettagli.Righe $Foto.Dettagli $script:HDCampiStoricoDettagli }
     if ($Tabella.DatiSoftware) {
         foreach ($r in @($Tabella.DatiSoftware.Righe | Where-Object { $_ })) {
@@ -486,8 +548,8 @@ function Get-HDCambiamenti {
             foreach ($p in @(ConvertFrom-HDTestoProgrammi $r.Valori['Programmi'])) { $dopo[(ConvertTo-HDChiaveProgramma $p.Nome)] = $p.Nome }
             $installati = @($dopo.Keys | Where-Object { -not $prima.ContainsKey($_) } | ForEach-Object { $dopo[$_] } | Sort-Object)
             $tolti = @($prima.Keys | Where-Object { -not $dopo.ContainsKey($_) } | ForEach-Object { $prima[$_] } | Sort-Object)
-            if ($installati.Count -gt 0) { & $voce $r.Valori 'Programmi installati' '' (Format-HDElencoBreve $installati) }
-            if ($tolti.Count -gt 0) { & $voce $r.Valori 'Programmi disinstallati' (Format-HDElencoBreve $tolti) '' }
+            if ($installati.Count -gt 0) { & $voce $r.Valori ('Programmi installati: ' + (Format-HDElencoBreve $installati)) }
+            if ($tolti.Count -gt 0) { & $voce $r.Valori ('Programmi disinstallati: ' + (Format-HDElencoBreve $tolti)) }
         }
     }
 }
@@ -498,7 +560,7 @@ function Add-HDStoricoATabella {
     foreach ($v in @($Voci | Where-Object { $_ })) {
         $riga = New-HDRigaTabella $Tabella
         $diff = @{}
-        foreach ($k in 'Data', 'Hostname', 'SerialNumber', 'Campo', 'Prima', 'Dopo') {
+        foreach ($k in 'Data', 'Hostname', 'SerialNumber', 'Cambiamento') {
             $testo = [string]$v.$k
             if ($testo.Length -gt $script:HDMassimoCella) { $testo = $testo.Substring(0, $script:HDMassimoCella) }
             if ($testo -ne '') { $diff[$k] = $testo }

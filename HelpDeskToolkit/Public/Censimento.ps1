@@ -385,7 +385,7 @@ function Save-HDCensimento {
             }
             if ($null -ne $a.Riscrivi) {
                 $numericheFoglio = @(for ($i = 0; $i -lt $a.Tabella.Definizione.Count; $i++) { if ($a.Tabella.Definizione[$i].Numerica) { $i + 1 } })
-                Set-HDRigheFoglio -Percorso $temporaneo -ParteFoglio $parte -IndiceFoglio $indice -Intestazione @($a.Tabella.Definizione | ForEach-Object { $_.Titolo }) -Righe $a.Riscrivi -ColonneNumeriche $numericheFoglio
+                Set-HDRigheFoglio -Percorso $temporaneo -ParteFoglio $parte -IndiceFoglio $indice -Intestazione @($a.Tabella.Definizione | ForEach-Object { $_.Titolo }) -Righe $a.Riscrivi -ColonneNumeriche $numericheFoglio -Larghezze @($a.Tabella.Definizione | ForEach-Object { [double]$_.Larghezza })
                 continue
             }
             $celleSaltate = Update-HDXlsx -Percorso $temporaneo -ParteFoglio $parte -IndiceFoglio $indice -Modifiche $a.Lista -RigaIntestazione $a.Tabella.RigaIntestazione
@@ -618,7 +618,7 @@ function New-Censimento {
         try { $giorniAggiornamenti = [int](Get-HDConfig).Soglie.AggiornamentiGiorniAttenzione } catch { $giorniAggiornamenti = 45 }
         if ($giorniAggiornamenti -le 0) { $giorniAggiornamenti = 45 }
         $altri = @(
-            @{ Nome = $script:HDFoglioRiepilogo; Colonne = $script:HDColonneRiepilogo; Evidenzia = @{ 1 = '{0}="Urgente"' } }
+            @{ Nome = $script:HDFoglioRiepilogo; Colonne = $script:HDColonneRiepilogo; Evidenzia = @{ 3 = 'LEN({0})>0' } }
             @{ Nome = $script:HDFoglioDettagli; Colonne = $script:HDColonneDettagli; Evidenzia = @{
                     $dettagli['Windows11']          = 'LEFT({0},3)="No:"'
                     $dettagli['DischiFisici']       = 'OR(ISNUMBER(SEARCH("GUASTO",{0})),ISNUMBER(SEARCH("ATTENZIONE",{0})))'

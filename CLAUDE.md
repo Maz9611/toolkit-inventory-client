@@ -56,12 +56,16 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
 
 ## Fogli Riepilogo e Storico (Private/CensimentoRiepilogo.ps1, Public/Riepilogo.ps1)
 
-- Riepilogo: una riga per punto da sistemare (`Get-HDPuntiRiepilogo`, pura: controlli come scriptblock
-  su `Get-HDPcCensiti` = righe del foglio principale + Dettagli). Riscritto a ogni `Save-HDCensimento`
+- Riepilogo: una riga per PC (Hostname, Utilizzatore, Urgente, Da controllare) con frasi brevi e precise
+  ("BitLocker non attivo (portatile)", "Desktop remoto (RDP) attivo"), mai consigli generici né colonne
+  "Cosa fare". `Get-HDPuntiRiepilogo` (pura: controlli come scriptblock su `Get-HDPcCensiti` = righe del
+  foglio principale + Dettagli) dà per ogni controllo i PC con la frase; `Get-HDRiepilogoPerPc` la
+  rigira per PC. Riscritto a ogni `Save-HDCensimento`
   dai dati già aggiornati in memoria (`Get-HDRigheRiepilogoTabella`); stato con `Get-HDStatoFoglioRiscritto`
   (come Software). Date di fine supporto di Windows in `$script:HDFineSupportoWindows11` (da aggiornare
   quando escono versioni nuove); soglie in `Soglie` di config (RamMinimaGB, BiosAnni, CensimentoMesi).
-- Storico: una riga per cambiamento, aggiunta in fondo. `Invoke-HDSincronizzazione` fa
+- Storico: una riga per cambiamento con una frase (`Format-HDCambiamento`: "RAM: 8 GB → 16 GB", per gli
+  elenchi "aggiunto/tolto"), aggiunta in fondo; il primo censimento di un PC non si scrive. `Invoke-HDSincronizzazione` fa
   `Get-HDFotoCensimento` prima di applicare i censimenti e `Get-HDCambiamenti` dopo; campi seguiti in
   `$script:HDCampiStorico*` (niente IP, spazio libero, build, firme antivirus: cambiano troppo spesso).
 - `Export-RiepilogoCensimento`: pagina HTML per il cliente in Report (stesso CSS del report di verifica).

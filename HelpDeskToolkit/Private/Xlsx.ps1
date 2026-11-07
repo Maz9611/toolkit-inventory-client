@@ -512,7 +512,7 @@ function Set-HDRigheFoglio {
     Mantiene colonne, stili delle colonne e impostazioni del foglio; aggiorna dimensione e filtro.
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Funzione interna su una copia temporanea')]
-    param([Parameter(Mandatory)][string]$Percorso, [Parameter(Mandatory)][string]$ParteFoglio, [int]$IndiceFoglio, [Parameter(Mandatory)][string[]]$Intestazione, [object[]]$Righe = @(), [int[]]$ColonneNumeriche = @())
+    param([Parameter(Mandatory)][string]$Percorso, [Parameter(Mandatory)][string]$ParteFoglio, [int]$IndiceFoglio, [Parameter(Mandatory)][string[]]$Intestazione, [object[]]$Righe = @(), [int[]]$ColonneNumeriche = @(), [double[]]$Larghezze = @())
     $zip = Open-HDZip -Percorso (Resolve-HDPercorso $Percorso) -Scrittura
     try {
         $doc = Read-HDXml -Zip $zip -Nome $ParteFoglio
@@ -576,6 +576,15 @@ function Set-HDRigheFoglio {
                 $foglioNome = $nome.InnerText.Substring(0, $nome.InnerText.LastIndexOf('!') + 1)
                 $nome.InnerText = $foglioNome + ('$A$1:${0}${1}' -f (ConvertTo-HDLettereColonna $maxColonna), $numero)
                 Write-HDVoceZip -Zip $zip -Nome $info.ParteWorkbook -Testo $wb.OuterXml
+            }
+        }
+        # -Larghezze: larghezza di ogni colonna (serve quando cambia la disposizione del foglio)
+        for ($i = 0; $i -lt $Larghezze.Count; $i++) {
+            $n = [string]($i + 1)
+            $col = $doc.SelectSingleNode("/x:worksheet/x:cols/x:col[@min='$n' and @max='$n']", $nsm)
+            if ($col -and $Larghezze[$i] -gt 0) {
+                $col.SetAttribute('width', $Larghezze[$i].ToString($script:HDInvariante))
+                $col.SetAttribute('customWidth', '1')
             }
         }
         Write-HDVoceZip -Zip $zip -Nome $ParteFoglio -Testo $doc.OuterXml

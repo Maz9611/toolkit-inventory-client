@@ -1,60 +1,59 @@
 ﻿# Riepilogo del parco PC da consegnare al cliente: pagina HTML dai dati dell'Excel del censimento.
 
 function ConvertTo-HDHtmlRiepilogo {
-    # Pagina del riepilogo: esito in una frase, punti da sistemare per priorità con i PC e cosa fare,
-    # il parco in numeri, i cambiamenti recenti e l'elenco dei PC
+    # Pagina del riepilogo: esito in una frase, i problemi in sintesi (quanti PC per ciascuno), PC per PC
+    # con i fatti, il parco in numeri, i cambiamenti recenti e l'elenco dei PC
     param([string]$Cliente, [object[]]$PC, [object[]]$Punti, [object[]]$Cambiamenti, [string]$File, [datetime]$Adesso = (Get-Date), [int]$GiorniCambiamenti = 90)
     $h = { param($t) ConvertTo-HDHtml ([string]$t) }
     $elencoPc = @($PC | Where-Object { $_ })
     $tuttiPunti = @($Punti | Where-Object { $_ })
-    $priorita = [ordered]@{
-        'Urgente'        = @{ Classe = 'critico'; Sezione = 'Da fare subito' }
-        'Da pianificare' = @{ Classe = 'attenzione'; Sezione = 'Da pianificare' }
-        'Da sapere'      = @{ Classe = 'info'; Sezione = 'Da sapere' }
+    $perPc = @(Get-HDRiepilogoPerPc -PC $elencoPc -Punti $tuttiPunti)
+    $classi = @{ 'Urgente' = 'critico'; 'Da controllare' = 'attenzione'; 'OK' = 'ok' }
+    $stato = @{}
+    foreach ($x in $perPc) {
+        $stato[$x.Nome] = 'OK'
+        if ($x.Urgente.Count -gt 0) { $stato[$x.Nome] = 'Urgente' }
+        elseif ($x.DaControllare.Count -gt 0) { $stato[$x.Nome] = 'Da controllare' }
     }
 
-    # Esito: quanti punti per priorità e quanti PC coinvolti (ogni PC conta una volta, col punto più grave)
-    $numeroPunti = @{}
-    foreach ($k in $priorita.Keys) { $numeroPunti[$k] = @($tuttiPunti | Where-Object { $_.Priorita -eq $k }).Count }
-    if ($numeroPunti['Urgente'] -gt 0) {
-        $frase = Format-HDQuantita $numeroPunti['Urgente'] 'punto urgente' 'punti urgenti'
-        if ($numeroPunti['Da pianificare'] -gt 0) { $frase += ' e ' + (Format-HDQuantita $numeroPunti['Da pianificare'] 'da pianificare' 'da pianificare') }
+    # Esito: quanti PC hanno problemi urgenti, quanti solo punti da controllare, quanti nessuno
+    $conta = [ordered]@{ 'Urgente' = 0; 'Da controllare' = 0; 'OK' = 0 }
+    foreach ($k in $stato.Keys) { $conta[$stato[$k]]++ }
+    if ($conta['Urgente'] -gt 0) {
+        $frase = Format-HDQuantita $conta['Urgente'] 'PC con problemi urgenti' 'PC con problemi urgenti'
+        if ($conta['Da controllare'] -gt 0) { $frase += ', {0} con punti da controllare' -f $conta['Da controllare'] }
     }
-    elseif ($numeroPunti['Da pianificare'] -gt 0) { $frase = 'Nessun punto urgente, ' + (Format-HDQuantita $numeroPunti['Da pianificare'] 'da pianificare' 'da pianificare') }
-    else { $frase = 'Nessun punto da sistemare' }
-    $peggiore = @{}
-    foreach ($k in @($priorita.Keys)) {
-        foreach ($p in @($tuttiPunti | Where-Object { $_.Priorita -eq $k })) {
-            foreach ($x in @($p.PC)) { if (-not $peggiore.ContainsKey($x.Nome)) { $peggiore[$x.Nome] = $k } }
-        }
-    }
-    $conta = [ordered]@{ 'Urgente' = 0; 'Da pianificare' = 0; 'Da sapere' = 0; 'OK' = 0 }
-    foreach ($x in $elencoPc) { if ($peggiore.ContainsKey($x.Nome)) { $conta[$peggiore[$x.Nome]]++ } else { $conta['OK']++ } }
-    $coinvolti = $conta['Urgente'] + $conta['Da pianificare']
+    elseif ($conta['Da controllare'] -gt 0) { $frase = 'Nessun problema urgente, ' + (Format-HDQuantita $conta['Da controllare'] 'PC con punti da controllare' 'PC con punti da controllare') }
+    else { $frase = 'Nessun problema rilevato' }
     $sotto = ''
-    if ($elencoPc.Count -gt 1 -and $coinvolti -eq $elencoPc.Count) { $sotto = 'Riguardano tutti i PC censiti.' }
-    elseif ($elencoPc.Count -gt 0 -and $coinvolti -gt 0) { $sotto = 'Riguardano {0} dei {1}.' -f $coinvolti, (Format-HDQuantita $elencoPc.Count 'PC censito' 'PC censiti') }
-    $classi = @{ 'Urgente' = 'critico'; 'Da pianificare' = 'attenzione'; 'Da sapere' = 'info'; 'OK' = 'ok' }
-    $nomiLegenda = @{ 'Urgente' = 'con punti urgenti'; 'Da pianificare' = 'con punti da pianificare'; 'Da sapere' = 'solo da sapere'; 'OK' = 'a posto' }
+    if ($conta['OK'] -gt 0 -and $conta['OK'] -lt $perPc.Count) { $sotto = '{0} su {1} senza problemi.' -f (Format-HDQuantita $conta['OK'] 'PC' 'PC'), $perPc.Count }
+    $nomiLegenda = @{ 'Urgente' = 'con problemi urgenti'; 'Da controllare' = 'con punti da controllare'; 'OK' = 'senza problemi' }
     $barra = (@($conta.Keys | Where-Object { $conta[$_] -gt 0 } | ForEach-Object { '<span class="c-{0}" style="flex:{1}"></span>' -f $classi[$_], $conta[$_] }) -join '')
     $legenda = (@($conta.Keys | Where-Object { $conta[$_] -gt 0 } | ForEach-Object { '<li><i class="punto c-{0}"></i>{1} {2}</li>' -f $classi[$_], (Format-HDQuantita $conta[$_] 'PC' 'PC'), $nomiLegenda[$_] }) -join '')
 
-    # Punti da sistemare
-    $sezioni = foreach ($k in $priorita.Keys) {
-        $diQuesta = @($tuttiPunti | Where-Object { $_.Priorita -eq $k })
-        if ($diQuesta.Count -eq 0) { continue }
-        $classe = $priorita[$k].Classe
-        $voci = foreach ($p in $diQuesta) {
-            $elenco = foreach ($x in @($p.PC)) {
-                $riga = '<b>{0}</b>' -f (& $h $x.Nome)
-                if ($x.Utilizzatore) { $riga += ' &middot; ' + (& $h $x.Utilizzatore) }
-                if ($x.Dettaglio) { $riga += ' <span class="nota">{0}</span>' -f (& $h $x.Dettaglio) }
-                '<li>{0}</li>' -f $riga
-            }
-            '<article class="voce v-{0}"><div class="testa"><span class="nome">{1}</span><span class="stato t-{0}">{2}</span></div><ul class="pc">{3}</ul><p class="fare"><b>Cosa fare:</b> {4}</p></article>' -f `
-                $classe, (& $h $p.Punto), (& $h (Format-HDQuantita @($p.PC).Count 'PC' 'PC')), (@($elenco) -join ''), (& $h $p.CosaFare)
+    # In sintesi: un problema per riga con quanti PC lo hanno, prima gli urgenti
+    $sezioneSintesi = ''
+    if ($tuttiPunti.Count -gt 0) {
+        $ordinati = @($tuttiPunti | Sort-Object @{ Expression = { if ($_.Priorita -eq 'Urgente') { 0 } else { 1 } } }, @{ Expression = { @($_.PC).Count }; Descending = $true })
+        $righe = foreach ($p in $ordinati) {
+            '<tr><td class="controllo"><i class="punto c-{0}"></i>{1}</td><td class="num">{2}</td></tr>' -f $classi[$p.Priorita], (& $h $p.Punto), (& $h (Format-HDQuantita @($p.PC).Count 'PC' 'PC'))
         }
-        "<h2>$($priorita[$k].Sezione)</h2>`n" + (@($voci) -join "`n")
+        $sezioneSintesi = "<h2>In sintesi</h2>`n<table><thead><tr><th>Problema</th><th class=`"num`">PC</th></tr></thead><tbody>`n" + (@($righe) -join "`n") + "`n</tbody></table>"
+    }
+
+    # PC per PC: i fatti di ogni PC, prima i PC messi peggio
+    $sezionePc = ''
+    $conProblemi = @($perPc | Where-Object { $_.Urgente.Count + $_.DaControllare.Count -gt 0 })
+    if ($conProblemi.Count -gt 0) {
+        $righe = foreach ($x in $conProblemi) {
+            $fatti = @($x.Urgente | ForEach-Object { '<li><i class="punto c-critico"></i>{0}</li>' -f (& $h $_) }) + @($x.DaControllare | ForEach-Object { '<li><i class="punto c-attenzione"></i>{0}</li>' -f (& $h $_) })
+            $nome = '<b>{0}</b>' -f (& $h $x.Nome)
+            if ($x.Utilizzatore) { $nome += '<div class="nota">{0}</div>' -f (& $h $x.Utilizzatore) }
+            '<tr><td class="controllo">{0}</td><td><ul class="fatti">{1}</ul></td></tr>' -f $nome, ($fatti -join '')
+        }
+        $sezionePc = "<h2>PC per PC</h2>`n<table class=`"tabella-larga`"><thead><tr><th>PC</th><th>Problemi</th></tr></thead><tbody>`n" + (@($righe) -join "`n") + "`n</tbody></table>"
+        $senza = @($perPc | Where-Object { $_.Urgente.Count + $_.DaControllare.Count -eq 0 } | ForEach-Object { $_.Nome } | Sort-Object)
+        if ($senza.Count -gt 0) { $sezionePc += "`n" + ('<p class="nota">Senza problemi: {0}.</p>' -f (& $h ($senza -join ', '))) }
     }
 
     # Il parco in numeri
@@ -84,19 +83,14 @@ function ConvertTo-HDHtmlRiepilogo {
 
     # Cambiamenti recenti (dal foglio Storico)
     $limite = $Adesso.AddDays(-1 * $GiorniCambiamenti)
-    $recenti = @($Cambiamenti | Where-Object { $_ } | ForEach-Object {
+    $recenti = @($Cambiamenti | Where-Object { $_ -and $_.Cambiamento } | ForEach-Object {
             $d = ConvertFrom-HDDataTesto $_.Data
             if ($d -and $d -ge $limite) { [pscustomobject]@{ Data = $d; Voce = $_ } }
         } | Sort-Object Data -Descending | Select-Object -First 60)
     $sezioneCambiamenti = ''
     if ($recenti.Count -gt 0) {
         $righe = foreach ($r in $recenti) {
-            $v = $r.Voce
-            $cosa = ''
-            if ($v.Prima -and $v.Dopo) { $cosa = '{0} <span class="nota">&rarr;</span> {1}' -f (& $h $v.Prima), (& $h $v.Dopo) }
-            elseif ($v.Dopo) { $cosa = & $h $v.Dopo }
-            else { $cosa = & $h $v.Prima }
-            '<tr><td class="data">{0}</td><td class="controllo">{1}</td><td>{2}<div class="nota">{3}</div></td></tr>' -f $r.Data.ToString('dd/MM/yyyy', $script:HDInvariante), (& $h $v.Hostname), (& $h $v.Campo), $cosa
+            '<tr><td class="data">{0}</td><td class="controllo">{1}</td><td>{2}</td></tr>' -f $r.Data.ToString('dd/MM/yyyy', $script:HDInvariante), (& $h $r.Voce.Hostname), (& $h $r.Voce.Cambiamento)
         }
         $sezioneCambiamenti = "<h2>Cambiamenti degli ultimi $GiorniCambiamenti giorni</h2>`n<table class=`"tabella-larga`"><thead><tr><th>Data</th><th>PC</th><th>Cosa è cambiato</th></tr></thead><tbody>`n" + (@($righe) -join "`n") + "`n</tbody></table>"
     }
@@ -105,8 +99,8 @@ function ConvertTo-HDHtmlRiepilogo {
     $sezioneElenco = ''
     if ($elencoPc.Count -gt 0) {
         $righe = foreach ($x in @($elencoPc | Sort-Object Nome)) {
-            $stato = 'OK'
-            if ($peggiore.ContainsKey($x.Nome)) { $stato = $peggiore[$x.Nome] }
+            $s = 'OK'
+            if ($stato.ContainsKey($x.Nome)) { $s = $stato[$x.Nome] }
             $sistema = (([string]$x.Valori['OS']) -replace '^(?i)Microsoft\s+', '').Trim()
             $versione = (([string]$x.Valori['OSVersion']) -replace '\s*\(.*$', '').Trim()
             if ($versione) { $sistema = "$sistema $versione" }
@@ -114,16 +108,15 @@ function ConvertTo-HDHtmlRiepilogo {
             $gb = Get-HDMemoriaGB $x.Valori['Memory']
             if ($gb -gt 0) { $ram = '{0} GB' -f [math]::Round($gb, 1) }
             $modello = Join-HDProduttoreModello $x.Valori['Manufacturer'] $x.Valori['Model']
-            '<tr><td class="controllo"><i class="punto c-{0}"></i>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td class="num">{5}</td></tr>' -f $classi[$stato], (& $h $x.Nome), (& $h $x.Utilizzatore), (& $h $modello), (& $h $sistema), (& $h $ram)
+            '<tr><td class="controllo"><i class="punto c-{0}"></i>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td class="num">{5}</td></tr>' -f $classi[$s], (& $h $x.Nome), (& $h $x.Utilizzatore), (& $h $modello), (& $h $sistema), (& $h $ram)
         }
-        $sezioneElenco = "<h2>Elenco dei PC</h2>`n<table class=`"tabella-larga`"><thead><tr><th>PC</th><th>Utilizzatore</th><th>Modello</th><th>Sistema</th><th>RAM</th></tr></thead><tbody>`n" + (@($righe) -join "`n") + "`n</tbody></table>"
+        $sezioneElenco = "<h2>Elenco dei PC</h2>`n<table class=`"tabella-larga`"><thead><tr><th>PC</th><th>Utilizzatore</th><th>Modello</th><th>Sistema</th><th class=`"num`">RAM</th></tr></thead><tbody>`n" + (@($righe) -join "`n") + "`n</tbody></table>"
     }
 
     $titolo = $Cliente
     if (-not $titolo) { $titolo = 'Parco PC' }
     $sottotitolo = Format-HDQuantita $elencoPc.Count 'PC censito' 'PC censiti'
     $giorno = Format-HDData $Adesso 'dd/MM/yyyy'
-    $sezioniPunti = @($sezioni) -join "`n"
     $paragrafoSotto = ''
     if ($sotto) { $paragrafoSotto = '<div class="sotto">{0}</div>' -f (& $h $sotto) }
     $origine = 'Dati raccolti in sola lettura dal censimento'
@@ -146,7 +139,8 @@ function ConvertTo-HDHtmlRiepilogo {
   <div class="barra">$barra</div>
   <ul class="legenda">$legenda</ul>
 </section>
-$sezioniPunti
+$sezioneSintesi
+$sezionePc
 <h2>Il parco PC in numeri</h2>
 <dl class="dati">
 $dati
@@ -165,10 +159,10 @@ function Export-RiepilogoCensimento {
     Crea il riepilogo del parco PC da consegnare al cliente (pagina HTML da stampare o salvare in PDF).
 
     .DESCRIPTION
-    Legge l'Excel del censimento e mette in una pagina i punti da sistemare divisi per priorità (con i PC
-    interessati e cosa fare), il parco PC in numeri, i cambiamenti degli ultimi 90 giorni (foglio Storico)
-    e l'elenco dei PC. Gli stessi punti sono anche nel foglio "Riepilogo" dell'Excel, ricalcolato a ogni
-    censimento. Il file va nella cartella Report del toolkit.
+    Legge l'Excel del censimento e mette in una pagina i problemi in sintesi (quanti PC per ciascuno), i
+    problemi PC per PC (es. "BitLocker non attivo", "Desktop remoto (RDP) attivo"), il parco PC in numeri,
+    i cambiamenti degli ultimi 90 giorni (foglio Storico) e l'elenco dei PC. Gli stessi problemi sono nel
+    foglio "Riepilogo" dell'Excel, ricalcolato a ogni censimento. Il file va nella cartella Report.
 
     .PARAMETER Censimento
     File Excel del censimento (se non indicato: quello della cartella Censimento).
@@ -194,7 +188,7 @@ function Export-RiepilogoCensimento {
     $punti = @(Get-HDPuntiRiepilogo -PC $pc -Soglie $cfg.Soglie -Adesso $adesso)
     $cambiamenti = @()
     if ($tabella.Storico -and -not $tabella.Storico.Conflitto) {
-        $cambiamenti = @($tabella.Storico.Righe | ForEach-Object { [pscustomobject]@{ Data = $_.Valori['Data']; Hostname = $_.Valori['Hostname']; Campo = $_.Valori['Campo']; Prima = $_.Valori['Prima']; Dopo = $_.Valori['Dopo'] } })
+        $cambiamenti = @($tabella.Storico.Righe | ForEach-Object { [pscustomobject]@{ Data = $_.Valori['Data']; Hostname = $_.Valori['Hostname']; Cambiamento = $_.Valori['Cambiamento'] } })
     }
     $cliente = Get-HDNomeCliente $file
     $html = ConvertTo-HDHtmlRiepilogo -Cliente $cliente -PC $pc -Punti $punti -Cambiamenti $cambiamenti -File (Split-Path -Leaf $file) -Adesso $adesso

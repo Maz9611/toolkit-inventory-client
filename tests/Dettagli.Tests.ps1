@@ -252,7 +252,7 @@ Describe 'Fogli Dettagli e Software nell''Excel' {
         $e.Scritto | Should -BeTrue
         @($avvisi) | Should -BeNullOrEmpty
         $fogli = Get-Fogli $vecchio
-        @($fogli | ForEach-Object { $_.Nome }) | Should -Be @('Censimento', 'Dettagli', 'Software', 'DatiSoftware', 'Storico', 'Riepilogo')
+        @($fogli | ForEach-Object { $_.Nome }) | Should -Be @('Censimento', 'Dettagli', 'Software', 'DatiSoftware', 'Riepilogo')
         $principale = $fogli | Where-Object Nome -eq 'Censimento'
         $principale.Righe[1][20] | Should -Be 'Locazione'
         $principale.Righe[1][21] | Should -Be 'BitLocker'
