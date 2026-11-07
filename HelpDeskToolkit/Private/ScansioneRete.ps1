@@ -235,19 +235,59 @@ function Read-HDElencoProduttoriMac {
     $elenco
 }
 
-function New-HDPacchettoMdnsInverso {
-    # Domanda DNS "chi è x.x.x.x?" (PTR di in-addr.arpa), da mandare in unicast alla porta 5353 del dispositivo
+# Servizi chiesti al gruppo multicast: chi li offre risponde con il suo nome (record A nome.local -> IP)
+$script:HDServiziMdns = @(
+    '_companion-link._tcp.local', '_rdlink._tcp.local', '_apple-mobdev2._tcp.local'   # Mac, iPhone, iPad
+    '_airplay._tcp.local', '_raop._tcp.local', '_sleep-proxy._udp.local'              # Apple TV, HomePod, AirPlay
+    '_smb._tcp.local', '_afpovertcp._tcp.local', '_workstation._tcp.local', '_ssh._tcp.local'
+    '_ipp._tcp.local', '_ipps._tcp.local', '_printer._tcp.local', '_pdl-datastream._tcp.local', '_uscan._tcp.local'
+    '_googlecast._tcp.local', '_spotify-connect._tcp.local', '_hap._tcp.local', '_http._tcp.local'
+)
+
+function New-HDDomandaMulticast {
+    # Domanda DNS con uno o più nomi (PTR se non indicato). -Unicast chiede la risposta diretta (bit QU):
+    # con la porta di partenza diversa da 5353 i dispositivi rispondono comunque solo a chi ha chiesto
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Crea solo un pacchetto in memoria')]
-    param([Parameter(Mandatory)][string]$Ip, [int]$Id = 0x4844)
+    param([Parameter(Mandatory)][string[]]$Nomi, [int]$Tipo = 12, [int]$Id = 0x4844, [switch]$Unicast)
+    $classe = 1
+    if ($Unicast) { $classe = 0x8001 }
     $byte = New-Object System.Collections.Generic.List[byte]
-    foreach ($b in @((($Id -shr 8) -band 255), ($Id -band 255), 0, 0, 0, 1, 0, 0, 0, 0, 0, 0)) { $byte.Add([byte]$b) }
-    $etichette = @($Ip.Split('.')[3], $Ip.Split('.')[2], $Ip.Split('.')[1], $Ip.Split('.')[0], 'in-addr', 'arpa')
-    foreach ($e in $etichette) {
-        $byte.Add([byte]$e.Length)
-        foreach ($c in $e.ToCharArray()) { $byte.Add([byte][int]$c) }
+    foreach ($b in @((($Id -shr 8) -band 255), ($Id -band 255), 0, 0, (($Nomi.Count -shr 8) -band 255), ($Nomi.Count -band 255), 0, 0, 0, 0, 0, 0)) { $byte.Add([byte]$b) }
+    foreach ($nome in $Nomi) {
+        foreach ($etichetta in $nome.Trim('.').Split('.')) {
+            $testo = [System.Text.Encoding]::UTF8.GetBytes($etichetta)
+            $byte.Add([byte]$testo.Length)
+            $byte.AddRange($testo)
+        }
+        foreach ($b in @(0, (($Tipo -shr 8) -band 255), ($Tipo -band 255), (($classe -shr 8) -band 255), ($classe -band 255))) { $byte.Add([byte]$b) }
     }
-    foreach ($b in 0, 0, 12, 0, 1) { $byte.Add([byte]$b) }
     , $byte.ToArray()
+}
+
+function ConvertTo-HDNomeInverso {
+    # 192.168.3.184 -> 184.3.168.192.in-addr.arpa
+    param([string]$Ip)
+    $p = $Ip.Split('.')
+    '{0}.{1}.{2}.{3}.in-addr.arpa' -f $p[3], $p[2], $p[1], $p[0]
+}
+
+function New-HDPacchettoMdnsInverso {
+    # Domanda "chi è x.x.x.x?" (PTR di in-addr.arpa) per uno o più indirizzi
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Crea solo un pacchetto in memoria')]
+    param([Parameter(Mandatory)][string[]]$Ip, [int]$Id = 0x4844, [switch]$Unicast)
+    New-HDDomandaMulticast -Nomi @($Ip | ForEach-Object { ConvertTo-HDNomeInverso $_ }) -Id $Id -Unicast:$Unicast
+}
+
+function Get-HDDomandeMulticast {
+    # Pacchetti per il gruppo multicast: i servizi più comuni, poi i nomi inversi degli indirizzi a gruppi
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Crea solo pacchetti in memoria')]
+    param([string[]]$Indirizzi, [int]$PerPacchetto = 30)
+    , (New-HDDomandaMulticast -Nomi $script:HDServiziMdns -Id 0x4845 -Unicast)
+    $elenco = @($Indirizzi | Where-Object { $_ })
+    for ($i = 0; $i -lt $elenco.Count; $i += $PerPacchetto) {
+        $ultimo = [math]::Min($i + $PerPacchetto, $elenco.Count) - 1
+        , (New-HDPacchettoMdnsInverso -Ip $elenco[$i..$ultimo] -Id 0x4846 -Unicast)
+    }
 }
 
 function ConvertFrom-HDNomeDominio {
@@ -276,28 +316,61 @@ function ConvertFrom-HDNomeDominio {
     [pscustomobject]@{ Nome = ($parti -join '.'); Fine = $fine }
 }
 
-function ConvertFrom-HDRispostaMulticast {
-    # Risposta mDNS -> nome del dispositivo senza ".local" (es. "GT-AX11000_Pro")
+function ConvertFrom-HDRecordMulticast {
+    # Record di una risposta mDNS (risposte, autorità e sezione aggiuntiva) di tipo A, PTR, CNAME e SRV:
+    # Nome, Tipo e Valore (l'IP per A, il nome indicato per gli altri)
     param([byte[]]$Byte)
-    if (-not $Byte -or $Byte.Length -lt 12) { return '' }
+    if (-not $Byte -or $Byte.Length -lt 12) { return }
     $domande = [int]$Byte[4] * 256 + [int]$Byte[5]
-    $risposte = [int]$Byte[6] * 256 + [int]$Byte[7]
+    $record = 0
+    foreach ($i in 6, 8, 10) { $record += [int]$Byte[$i] * 256 + [int]$Byte[$i + 1] }
     $pos = 12
-    for ($i = 0; $i -lt $domande; $i++) { $pos = (ConvertFrom-HDNomeDominio $Byte $pos).Fine + 4 }
-    for ($i = 0; $i -lt $risposte -and $pos + 10 -le $Byte.Length; $i++) {
-        $pos = (ConvertFrom-HDNomeDominio $Byte $pos).Fine
+    for ($i = 0; $i -lt $domande -and $pos -lt $Byte.Length; $i++) { $pos = (ConvertFrom-HDNomeDominio $Byte $pos).Fine + 4 }
+    for ($i = 0; $i -lt $record -and $pos + 10 -le $Byte.Length; $i++) {
+        $letto = ConvertFrom-HDNomeDominio $Byte $pos
+        $pos = $letto.Fine
         if ($pos + 10 -gt $Byte.Length) { break }
         $tipo = [int]$Byte[$pos] * 256 + [int]$Byte[$pos + 1]
         $lunghezza = [int]$Byte[$pos + 8] * 256 + [int]$Byte[$pos + 9]
         $inizio = $pos + 10
-        if ($tipo -eq 12) {
-            $nome = (ConvertFrom-HDNomeDominio $Byte $inizio).Nome
-            $nome = ($nome -replace '(?i)\.local\.?$', '').Trim('.')
-            if ($nome) { return $nome }
-        }
+        if ($inizio + $lunghezza -gt $Byte.Length) { break }
+        $valore = ''
+        if ($tipo -eq 1 -and $lunghezza -eq 4) { $valore = '{0}.{1}.{2}.{3}' -f $Byte[$inizio], $Byte[$inizio + 1], $Byte[$inizio + 2], $Byte[$inizio + 3] }
+        elseif ($tipo -eq 12 -or $tipo -eq 5) { $valore = (ConvertFrom-HDNomeDominio $Byte $inizio).Nome }
+        elseif ($tipo -eq 33 -and $lunghezza -gt 6) { $valore = (ConvertFrom-HDNomeDominio $Byte ($inizio + 6)).Nome }
+        if ($valore) { [pscustomobject]@{ Nome = $letto.Nome; Tipo = $tipo; Valore = $valore } }
         $pos = $inizio + $lunghezza
     }
-    ''
+}
+
+function Get-HDNomiDaMulticast {
+    # Nomi dei dispositivi in una risposta mDNS (IP -> nome senza ".local"): dai record A (nome.local -> IP)
+    # e dai PTR inversi (x.x.x.x.in-addr.arpa -> nome.local). Se la risposta dice solo il nome host del
+    # servizio (SRV) senza il suo indirizzo, il nome vale per chi ha risposto ($Da)
+    param([byte[]]$Byte, [string]$Da)
+    $nomi = @{}
+    $conIndirizzo = @{}
+    $record = @(ConvertFrom-HDRecordMulticast -Byte $Byte)
+    foreach ($r in $record) {
+        $ip = ''
+        $nome = ''
+        if ($r.Tipo -eq 1) { $ip = $r.Valore; $nome = $r.Nome }
+        elseif ($r.Tipo -eq 12 -and $r.Nome -match '^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.in-addr\.arpa\.?$') {
+            $ip = '{0}.{1}.{2}.{3}' -f $Matches[4], $Matches[3], $Matches[2], $Matches[1]
+            $nome = $r.Valore
+        }
+        $nome = ($nome -replace '(?i)\.local\.?$', '').Trim('.')
+        if (-not ($ip -and $nome)) { continue }
+        $conIndirizzo[$nome.ToLowerInvariant()] = $true
+        if (-not $nomi.ContainsKey($ip)) { $nomi[$ip] = $nome }
+    }
+    if ($Da -and -not $nomi.ContainsKey($Da)) {
+        foreach ($r in @($record | Where-Object { $_.Tipo -eq 33 })) {
+            $nome = ($r.Valore -replace '(?i)\.local\.?$', '').Trim('.')
+            if ($nome -and -not $conIndirizzo.ContainsKey($nome.ToLowerInvariant())) { $nomi[$Da] = $nome; break }
+        }
+    }
+    $nomi
 }
 
 #endregion
@@ -433,13 +506,28 @@ function Test-HDNomeValido {
     ($n -and $n -notmatch '(?i)^(\(none\).*|none|localhost|unknown|null|default|-+)$')
 }
 
+function New-HDClientUdp {
+    # Client UDP su una porta qualsiasi, per le domande NetBIOS e mDNS a tanti indirizzi. Su Windows il
+    # "porta chiusa" (ICMP) di un dispositivo fa fallire la lettura successiva (WSAECONNRESET): con
+    # centinaia di domande quei falsi errori consumerebbero il tempo di attesa delle risposte vere
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Crea solo un oggetto in memoria')]
+    param()
+    $udp = New-Object System.Net.Sockets.UdpClient(0)
+    $udp.Client.ReceiveTimeout = 250
+    $udp.Client.ReceiveBufferSize = 1048576   # reti grandi: tante risposte tutte insieme
+    if (Test-HDWindows) {
+        # SIO_UDP_CONNRESET (0x9800000C) = falso
+        try { [void]$udp.Client.IOControl(-1744830452, [byte[]]@(0, 0, 0, 0), $null) }
+        catch { Write-Verbose "SIO_UDP_CONNRESET non impostato: $($_.Exception.Message)" }
+    }
+    $udp
+}
+
 function Resolve-HDNetbiosRemoto {
     param([Parameter(Mandatory)][string[]]$Indirizzi, [int]$AttesaMs = 1500)
     $risposte = @{}
-    $udp = New-Object System.Net.Sockets.UdpClient(0)
+    $udp = New-HDClientUdp
     try {
-        $udp.Client.ReceiveTimeout = 250
-        $udp.Client.ReceiveBufferSize = 1048576   # reti grandi: tante risposte tutte insieme
         $richiesta = New-HDRichiestaNbstat
         foreach ($ip in $Indirizzi) {
             try { [void]$udp.Send($richiesta, $richiesta.Length, $ip, 137) } catch { Write-Verbose "NetBIOS non inviato a ${ip}: $($_.Exception.Message)" }
@@ -460,24 +548,40 @@ function Resolve-HDNetbiosRemoto {
 }
 
 function Resolve-HDNomeMulticast {
-    # Chiede il nome via mDNS (stampanti, telefoni, router, dispositivi Apple/Android, IoT)
-    param([Parameter(Mandatory)][string[]]$Indirizzi, [int]$AttesaMs = 1200)
+    # Chiede il nome via mDNS (stampanti, telefoni, router, dispositivi Apple/Android, IoT): domanda diretta
+    # a ogni indirizzo e, per gli indirizzi della rete del PC (-Locali), domande al gruppo multicast
+    # 224.0.0.251 dalla scheda di -IpLocale: Mac, iPhone e iPad spesso rispondono solo a queste
+    param([Parameter(Mandatory)][string[]]$Indirizzi, [string]$IpLocale, [string[]]$Locali = @(), [int]$AttesaMs = 1500)
     $nomi = @{}
-    $udp = New-Object System.Net.Sockets.UdpClient(0)
+    $cercati = @{}
+    foreach ($ip in $Indirizzi) { $cercati[$ip] = $true }
+    $udp = New-HDClientUdp
     try {
-        $udp.Client.ReceiveTimeout = 250
-        $udp.Client.ReceiveBufferSize = 1048576
         foreach ($ip in $Indirizzi) {
             $richiesta = New-HDPacchettoMdnsInverso -Ip $ip
             try { [void]$udp.Send($richiesta, $richiesta.Length, $ip, 5353) } catch { Write-Verbose "mDNS non inviato a ${ip}: $($_.Exception.Message)" }
         }
+        $perMulticast = @($Locali | Where-Object { $_ -and $cercati.ContainsKey($_) })
+        if ($IpLocale -and $perMulticast.Count -gt 0) {
+            try {
+                $udp.Client.SetSocketOption([System.Net.Sockets.SocketOptionLevel]::IP, [System.Net.Sockets.SocketOptionName]::MulticastInterface, ([System.Net.IPAddress]::Parse($IpLocale)).GetAddressBytes())
+                $udp.Client.SetSocketOption([System.Net.Sockets.SocketOptionLevel]::IP, [System.Net.Sockets.SocketOptionName]::MulticastTimeToLive, 255)
+                $gruppo = New-Object System.Net.IPEndPoint(([System.Net.IPAddress]::Parse('224.0.0.251')), 5353)
+                # Oltre 1024 indirizzi solo le domande sui servizi: troppe domande inverse intaserebbero il Wi-Fi
+                if ($perMulticast.Count -gt 1024) { $perMulticast = @() }
+                foreach ($pacchetto in @(Get-HDDomandeMulticast -Indirizzi $perMulticast)) { [void]$udp.Send($pacchetto, $pacchetto.Length, $gruppo) }
+            }
+            catch { Write-Verbose "mDNS multicast non inviato: $($_.Exception.Message)" }
+        }
         $fine = (Get-Date).AddMilliseconds($AttesaMs)
         $da = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
-        while ((Get-Date) -lt $fine -and $nomi.Count -lt $Indirizzi.Count) {
+        while ((Get-Date) -lt $fine -and $nomi.Count -lt $cercati.Count) {
             try {
                 $dati = $udp.Receive([ref]$da)
-                $nome = ConvertFrom-HDRispostaMulticast -Byte $dati
-                if ($nome) { $nomi[$da.Address.ToString()] = $nome }
+                $risposta = Get-HDNomiDaMulticast -Byte $dati -Da $da.Address.ToString()
+                foreach ($ip in @($risposta.Keys)) {
+                    if ($cercati.ContainsKey($ip) -and -not $nomi.ContainsKey($ip)) { $nomi[$ip] = $risposta[$ip] }
+                }
             }
             catch { Write-Verbose 'Attesa risposte mDNS...' }
         }

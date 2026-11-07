@@ -280,8 +280,66 @@ Describe 'Produttore dal MAC e nomi mDNS' {
             $dati.Add(0)
             $risposta.Add(0); $risposta.Add([byte]$dati.Count)
             foreach ($b in $dati) { $risposta.Add($b) }
-            ConvertFrom-HDRispostaMulticast -Byte $risposta.ToArray() | Should -Be 'GT-AX11000_Pro'
-            ConvertFrom-HDRispostaMulticast -Byte ([byte[]]@(1, 2, 3)) | Should -Be ''
+            (Get-HDNomiDaMulticast -Byte $risposta.ToArray() -Da '192.168.3.1')['192.168.3.1'] | Should -Be 'GT-AX11000_Pro'
+            (Get-HDNomiDaMulticast -Byte ([byte[]]@(1, 2, 3)) -Da '192.168.3.1').Count | Should -Be 0
+        }
+    }
+
+    It 'legge i nomi dai servizi annunciati (record A e SRV) e dalle domande inverse al gruppo multicast' {
+        InModuleScope HelpDeskToolkit {
+            $scriviNome = {
+                param($Lista, [string]$Testo)
+                foreach ($e in $Testo.Split('.')) { $t = [System.Text.Encoding]::UTF8.GetBytes($e); $Lista.Add([byte]$t.Length); $Lista.AddRange($t) }
+                $Lista.Add([byte]0)
+            }
+            $scriviRecord = {
+                param($Lista, [string]$Testo, [int]$Tipo, [object[]]$Prima, [string]$Bersaglio, [byte[]]$Indirizzo)
+                & $scriviNome $Lista $Testo
+                $dati = [System.Collections.Generic.List[byte]]::new()
+                foreach ($b in $Prima) { $dati.Add([byte]$b) }
+                if ($Bersaglio) { & $scriviNome $dati $Bersaglio }
+                if ($Indirizzo) { $dati.AddRange($Indirizzo) }
+                foreach ($b in @(0, $Tipo, 0x80, 1, 0, 0, 0, 120, 0, $dati.Count)) { $Lista.Add([byte]$b) }
+                $Lista.AddRange($dati)
+            }
+            $intestazione = { param($Lista, [int]$Risposte, [int]$Aggiuntivi) foreach ($b in @(0x48, 0x45, 0x84, 0, 0, 0, 0, $Risposte, 0, 0, 0, $Aggiuntivi)) { $Lista.Add([byte]$b) } }
+
+            # un Mac risponde alla domanda sul servizio "companion-link": PTR, SRV con il nome host e il suo IP
+            $mac = [System.Collections.Generic.List[byte]]::new()
+            & $intestazione $mac 1 2
+            & $scriviRecord $mac '_companion-link._tcp.local' 12 $null 'Air di Bianca._companion-link._tcp.local' $null
+            & $scriviRecord $mac 'Air di Bianca._companion-link._tcp.local' 33 @(0, 0, 0, 0, 0xC0, 0x3D) 'Air-di-Bianca.local' $null
+            & $scriviRecord $mac 'Air-di-Bianca.local' 1 $null '' ([byte[]]@(192, 168, 3, 184))
+            $nomi = Get-HDNomiDaMulticast -Byte $mac.ToArray() -Da '192.168.3.184'
+            $nomi.Count | Should -Be 1
+            $nomi['192.168.3.184'] | Should -Be 'Air-di-Bianca'
+            # la stessa risposta data per conto del Mac da un altro dispositivo: il nome resta al Mac
+            @((Get-HDNomiDaMulticast -Byte $mac.ToArray() -Da '192.168.3.50').Keys) | Should -Be @('192.168.3.184')
+
+            # solo SRV, senza indirizzo: il nome vale per chi ha risposto
+            $stampante = [System.Collections.Generic.List[byte]]::new()
+            & $intestazione $stampante 1 0
+            & $scriviRecord $stampante 'Ufficio._ipp._tcp.local' 33 @(0, 0, 0, 0, 2, 0x77) 'stampante-ufficio.local' $null
+            (Get-HDNomiDaMulticast -Byte $stampante.ToArray() -Da '192.168.3.60')['192.168.3.60'] | Should -Be 'stampante-ufficio'
+
+            # risposta inversa (domanda al gruppo per più indirizzi): l'IP viene dal nome in-addr.arpa
+            $q = New-HDPacchettoMdnsInverso -Ip '192.168.3.184', '192.168.3.36' -Unicast
+            $q[4..5] | Should -Be @(0, 2)
+            $q[-2..-1] | Should -Be @(0x80, 1)
+            $inversa = [System.Collections.Generic.List[byte]]::new()
+            & $intestazione $inversa 1 0
+            & $scriviRecord $inversa '184.3.168.192.in-addr.arpa' 12 $null 'Air-di-Bianca.local' $null
+            $nomi = Get-HDNomiDaMulticast -Byte $inversa.ToArray() -Da '192.168.3.184'
+            $nomi.Count | Should -Be 1
+            $nomi['192.168.3.184'] | Should -Be 'Air-di-Bianca'
+
+            # domande al gruppo: una per i servizi, poi le inverse a gruppi di 30
+            $pacchetti = @(Get-HDDomandeMulticast -Indirizzi @(1..70 | ForEach-Object { "192.168.3.$_" }))
+            $pacchetti.Count | Should -Be 4
+            $pacchetti[0][5] | Should -Be $script:HDServiziMdns.Count
+            $pacchetti[1][5] | Should -Be 30
+            $pacchetti[3][5] | Should -Be 10
+            $pacchetti[3].Length | Should -BeLessThan 1400
         }
     }
 }
@@ -334,7 +392,7 @@ Describe 'Invoke-ScansioneRete (rete simulata)' {
         Should -Invoke -ModuleName HelpDeskToolkit Invoke-HDPingParallelo -Times 2
         Should -Invoke -ModuleName HelpDeskToolkit Invoke-HDSondaTcp -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 249 }
         Should -Invoke -ModuleName HelpDeskToolkit Resolve-HDNetbiosRemoto -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 254 }
-        Should -Invoke -ModuleName HelpDeskToolkit Resolve-HDNomeMulticast -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 254 }
+        Should -Invoke -ModuleName HelpDeskToolkit Resolve-HDNomeMulticast -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 254 -and $IpLocale -eq '192.168.1.37' -and @($Locali).Count -eq 254 }
         Should -Invoke -ModuleName HelpDeskToolkit Resolve-HDNomeDnsInverso -Times 1 -ParameterFilter { @($Indirizzi).Count -eq 5 }
     }
 

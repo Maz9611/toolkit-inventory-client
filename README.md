@@ -66,7 +66,9 @@ le domande nella finestra nera); **`Importa-Scansione.cmd`** importa un file di 
   ricontattato in un secondo giro più lento; chi ancora manca viene cercato su alcune porte TCP
   comuni e con domande NetBIOS e mDNS (così si trovano anche Mac, iPhone e PC con il firewall che
   blocca il ping).
-- **Nomi:** NetBIOS (PC Windows), DNS e mDNS (router, stampanti, telefoni, dispositivi smart).
+- **Nomi:** NetBIOS (PC Windows), DNS e mDNS (router, stampanti, telefoni, dispositivi smart). Sulla
+  rete del PC le domande mDNS vanno anche al gruppo multicast, come fa Bonjour: è così che Mac, iPhone
+  e iPad dicono il loro nome (es. "Air-di-Bianca").
 - **Produttore:** dal MAC, con l'elenco ufficiale IEEE dei produttori (incluso nel toolkit). I MAC
   "casuali" di telefoni e tablet vengono indicati come tali.
 - **Altre reti/VLAN dietro un router:** si trovano solo i dispositivi che rispondono al ping, e senza
@@ -246,7 +248,7 @@ Ogni comando ha la guida: `Get-Help Invoke-ScansioneRete -Full`. Quelli che scri
 
 ## Cosa è stato verificato e cosa no
 
-- **Test automatici:** ne passano 340 (Excel con più fogli, scansione anche su più reti, abbinamenti,
+- **Test automatici:** ne passano 341 (Excel con più fogli, scansione anche su più reti, abbinamenti,
   formati delle colonne, fogli Dettagli e Software, verifica postazione, motore dell'exe). A ogni
   modifica girano anche su Windows PowerShell 5.1 con GitHub Actions, che crea l'exe e lo avvia. PSScriptAnalyzer, con le regole di compatibilità per Windows PowerShell 5.1,
   non segnala problemi.

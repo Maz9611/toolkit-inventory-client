@@ -80,19 +80,26 @@ function Invoke-ScansioneRete {
     }
 
     # Terzo controllo per chi ancora manca: porte TCP comuni (Mac, iPhone, PC con firewall)
+    $infoLocale = $null
+    if ($locale -and $locale.Rete) { try { $infoLocale = Get-HDInfoRete $locale.Rete } catch { $infoLocale = $null } }
     $tcp = @()
     $mancanti = @($indirizzi | Where-Object { $rispondono -notcontains $_ -and -not $arp.ContainsKey($_) })
     if ($mancanti.Count -gt 0 -and $mancanti.Count -le 1024) {
         & $segnala ('Controllo di alcune porte comuni su {0} indirizzi...' -f $mancanti.Count)
-        $infoLocale = $null
-        if ($locale -and $locale.Rete) { try { $infoLocale = Get-HDInfoRete $locale.Rete } catch { $infoLocale = $null } }
         $tcp = @(Select-HDSondeAffidabili -Sonde @(Invoke-HDSondaTcp -Indirizzi $mancanti -Avanzamento $Avanzamento) -InfoLocale $infoLocale -Provati $mancanti.Count)
     }
 
     # Nomi chiesti a tutti gli indirizzi: chi risponde a NetBIOS o mDNS esiste, anche se ignora il ping
     & $segnala 'Ricerca dei nomi (NetBIOS e mDNS)...'
     $netbios = Resolve-HDNetbiosRemoto -Indirizzi $indirizzi
-    $mdns = Resolve-HDNomeMulticast -Indirizzi $indirizzi
+    # mDNS anche al gruppo multicast, ma solo per la rete del PC: oltre un router non arriva
+    $ipLocale = ''
+    $locali = @()
+    if ($infoLocale) {
+        $ipLocale = $locale.IP
+        $locali = @($indirizzi | Where-Object { Test-HDIpNellaRete -Ip $_ -Info $infoLocale })
+    }
+    $mdns = Resolve-HDNomeMulticast -Indirizzi $indirizzi -IpLocale $ipLocale -Locali $locali
 
     # Ultima lettura della tabella ARP: il MAC anche di chi si è fatto vivo con gli ultimi controlli
     foreach ($v in @(Get-HDViciniArp -Info $info)) { if (-not $arp.ContainsKey($v.IP)) { $arp[$v.IP] = $v.MAC } }

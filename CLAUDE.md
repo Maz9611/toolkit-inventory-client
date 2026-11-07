@@ -73,7 +73,11 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
 ## Scansione di rete e finestra
 
 - Scansione: ping, ARP, secondo giro di ping più lento per chi non ha risposto, poi nomi da NetBIOS,
-  DNS inverso e mDNS (unicast sulla porta 5353). Produttore dal MAC con
+  DNS inverso e mDNS: domanda diretta alla porta 5353 di ogni indirizzo e, solo per la rete del PC,
+  domande al gruppo 224.0.0.251 (servizi comuni in `$script:HDServiziMdns` e nomi inversi a gruppi di 30)
+  da una porta qualsiasi: i dispositivi rispondono in unicast ("legacy unicast"), quindi niente ascolto
+  sulla 5353 (avviso del firewall). I nomi vengono dai record A e dai PTR inversi (`Get-HDNomiDaMulticast`).
+  I client UDP si creano con `New-HDClientUdp` (su Windows disattiva SIO_UDP_CONNRESET). Produttore dal MAC con
   `HelpDeskToolkit/Dati/produttori-mac.txt.gz` (OUI<TAB>nome, da oui-data/IEEE; nell'exe è una risorsa
   passata al modulo come `$script:HDTestoProduttoriMac`).
 
