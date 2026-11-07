@@ -156,7 +156,7 @@ function Test-HDCtrlAggiornamenti {
     }
     if (-not $ultimo) { return New-HDEsito -Area 'Sicurezza' -Controllo $c -Stato 'NON VERIFICATO' -Dettaglio 'Nessuna data di installazione leggibile' }
     $giorni = [int][math]::Floor(($Adesso - $ultimo).TotalDays)
-    $det = 'Ultimo aggiornamento installato: {0} del {1} ({2} giorni fa)' -f $kb, (Format-HDData $ultimo 'dd/MM/yyyy'), $giorni
+    $det = 'Ultimo aggiornamento installato: {0} del {1} ({2})' -f $kb, (Format-HDData $ultimo 'dd/MM/yyyy'), (Format-HDGiorniFa $giorni)
     if ($giorni -ge $Soglie.AggiornamentiGiorniCritico) {
         return New-HDEsito -Area 'Sicurezza' -Controllo $c -Stato 'CRITICO' -Dettaglio $det -Suggerimento 'Da mesi non si installano aggiornamenti: controlla Windows Update (servizio, spazio su disco, errori in Impostazioni).'
     }
@@ -453,7 +453,7 @@ function Test-HDCtrlPuntoRipristino {
         return New-HDEsito -Area 'Sicurezza' -Controllo $c -Stato 'ATTENZIONE' -Dettaglio 'Nessun punto di ripristino disponibile' -Suggerimento ('La Protezione sistema potrebbe essere disattivata. ' + $crea)
     }
     $giorni = [int][math]::Floor(($Adesso - $date[0]).TotalDays)
-    $det = 'Ultimo punto: {0} ({1} giorni fa), {2} in totale' -f (Format-HDData $date[0]), $giorni, $date.Count
+    $det = 'Ultimo punto: {0} ({1}), {2} in totale' -f (Format-HDData $date[0]), (Format-HDGiorniFa $giorni), $date.Count
     if ($giorni -gt 30) { return New-HDEsito -Area 'Sicurezza' -Controllo $c -Stato 'INFO' -Dettaglio $det -Suggerimento $crea }
     New-HDEsito -Area 'Sicurezza' -Controllo $c -Stato 'OK' -Dettaglio $det
 }

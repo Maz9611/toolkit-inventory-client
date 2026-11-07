@@ -405,6 +405,8 @@ function ConvertTo-HDDettagliPC {
     param([Parameter(Mandatory)]$Grezzo, [string]$SistemaOperativo, [bool]$Server, [string]$Processore)
     $tpm = ConvertFrom-HDTpm -Wmi $Grezzo.Tpm -Dispositivi $Grezzo.TpmDispositivi
     $avvio = ConvertFrom-HDAvvio $Grezzo.Avvio
+    # la chiave di Secure Boot esiste solo sui PC con avvio UEFI
+    if (-not $avvio -and $null -ne $Grezzo.SecureBoot) { $avvio = 'UEFI' }
     $secureBoot = ConvertFrom-HDSecureBoot -Stato $Grezzo.SecureBoot -Avvio $avvio
     $ramGB = 0
     if ($Grezzo.ComputerSystem -and $Grezzo.ComputerSystem.TotalPhysicalMemory) { $ramGB = [double]$Grezzo.ComputerSystem.TotalPhysicalMemory / 1GB }

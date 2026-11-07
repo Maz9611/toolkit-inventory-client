@@ -193,7 +193,12 @@ Invoke-Collaudo 'Programma ToolkitHelpDesk.exe (avviato e chiuso senza mostrarlo
     $exe = Join-Path $radice 'ToolkitHelpDesk.exe'
     if (-not (Test-Path -LiteralPath $exe)) { return 'SALTATA: in questa cartella non c''è ToolkitHelpDesk.exe (si crea con Crea-Exe.cmd)' }
     $versione = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion
-    $processo = Start-Process -FilePath $exe -ArgumentList '/verifica' -Wait -PassThru
+    # avviato direttamente (non tramite la shell), così l'avviso di sicurezza per i file scaricati non interviene
+    $info = New-Object System.Diagnostics.ProcessStartInfo($exe, '/verifica')
+    $info.UseShellExecute = $false
+    $info.WorkingDirectory = $radice
+    $processo = [System.Diagnostics.Process]::Start($info)
+    if (-not $processo.WaitForExit(120000)) { $processo.Kill(); throw 'L''exe non ha risposto entro 2 minuti' }
     Assert-Vero ($processo.ExitCode -eq 0) ("L'exe non si avvia (codice {0}). Dettagli in {1}" -f $processo.ExitCode, (Join-Path ([System.IO.Path]::GetTempPath()) 'HelpDeskToolkit-errori.txt'))
     'ToolkitHelpDesk.exe {0}: carica il toolkit e costruisce la finestra' -f $versione
 }

@@ -203,6 +203,14 @@ function Format-HDNumero {
     $Valore.ToString("N$Decimali", $script:HDCultura)
 }
 
+function Format-HDGiorniFa {
+    # 0 -> "oggi", 1 -> "ieri", 5 -> "5 giorni fa"
+    param([int]$Giorni)
+    if ($Giorni -le 0) { return 'oggi' }
+    if ($Giorni -eq 1) { return 'ieri' }
+    '{0} giorni fa' -f $Giorni
+}
+
 function Format-HDQuantita {
     # 1 -> "1 stampante", 3 -> "3 stampanti"
     param([int]$Numero, [string]$Singolare, [string]$Plurale)

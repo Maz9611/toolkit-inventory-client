@@ -15,7 +15,7 @@ function Get-HDIntestazioneVerifica {
         $modello = Join-HDProduttoreModello $produttore (Get-HDModelloLeggibile -Produttore ([string]$Dati.CS.Manufacturer) -Modello ([string]$Dati.CS.Model) -SchedaMadre $scheda)
         if ($Dati.CS.PartOfDomain) { $dominio = [string]$Dati.CS.Domain } else { $dominio = 'Nessuno (gruppo di lavoro)' }
     }
-    if ($Dati.Bios) { $serie = Get-HDNumeroSerie $Dati.Bios.SerialNumber }
+    if ($Dati.Bios -or $Dati.SchedaMadre) { $serie = Get-HDSerialeMigliore ([pscustomobject]@{ Bios = $Dati.Bios; SchedaMadre = $Dati.SchedaMadre }) }
     $ip = @(@($Dati.Rete) | Where-Object { $_ } | ForEach-Object { @($_.IPAddress) -match $script:HDIpv4 } | Where-Object { $_ -notlike '169.254.*' }) -join ', '
     $admin = 'No'
     if ($Dati.Admin) { $admin = 'Sì' }

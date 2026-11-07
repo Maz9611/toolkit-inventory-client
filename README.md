@@ -244,7 +244,7 @@ Ogni comando ha la guida: `Get-Help Invoke-ScansioneRete -Full`. Quelli che scri
 
 ## Cosa è stato verificato e cosa no
 
-- **Test automatici:** ne passano 337 (Excel con più fogli, scansione anche su più reti, abbinamenti,
+- **Test automatici:** ne passano 339 (Excel con più fogli, scansione anche su più reti, abbinamenti,
   formati delle colonne, fogli Dettagli e Software, verifica postazione, motore dell'exe). A ogni
   modifica girano anche su Windows PowerShell 5.1 con GitHub Actions, che crea l'exe e lo avvia. PSScriptAnalyzer, con le regole di compatibilità per Windows PowerShell 5.1,
   non segnala problemi.

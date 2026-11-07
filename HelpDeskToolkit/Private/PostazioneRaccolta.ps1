@@ -148,7 +148,7 @@ function Get-HDDatiPostazione {
         OS               = { Get-HDCim -Classe Win32_OperatingSystem | Select-Object -First 1 Caption, Version, BuildNumber, LastBootUpTime, FreePhysicalMemory, TotalVisibleMemorySize }
         CS               = { Get-HDCim -Classe Win32_ComputerSystem | Select-Object -First 1 Name, Domain, PartOfDomain, Manufacturer, Model, UserName }
         Bios             = { Get-HDCim -Classe Win32_BIOS | Select-Object -First 1 SerialNumber }
-        SchedaMadre      = { Get-HDCim -Classe Win32_BaseBoard | Select-Object -First 1 Manufacturer, Product }
+        SchedaMadre      = { Get-HDCim -Classe Win32_BaseBoard | Select-Object -First 1 Manufacturer, Product, SerialNumber }
         VersioneWindows  = { Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop | Select-Object DisplayVersion, CurrentBuild, UBR }
         Dischi           = { , @(Get-HDCim -Classe Win32_LogicalDisk -Filtro 'DriveType=3' | Select-Object DeviceID, VolumeName, FileSystem, Size, FreeSpace) }
         RiavvioInSospeso = { , @(Get-HDMotiviRiavvio) }

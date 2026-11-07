@@ -40,6 +40,14 @@ Describe 'Formattazione all''italiana' {
         }
     }
 
+    It 'giorni passati in italiano' {
+        InModuleScope HelpDeskToolkit {
+            Format-HDGiorniFa 0 | Should -Be 'oggi'
+            Format-HDGiorniFa 1 | Should -Be 'ieri'
+            Format-HDGiorniFa 3 | Should -Be '3 giorni fa'
+        }
+    }
+
     It 'ConvertTo-HDChiave normalizza maiuscole, accenti e spazi' {
         InModuleScope HelpDeskToolkit { ConvertTo-HDChiave '  Modalità   Intervento ' } | Should -Be 'modalita intervento'
     }

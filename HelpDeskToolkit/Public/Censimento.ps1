@@ -96,7 +96,11 @@ $script:HDRaccoltaCensimento = {
     }
     # Dati per il foglio "Dettagli": pronto per Windows 11, dischi, monitor, stampanti, software.
     # Senza diritti di amministratore alcuni (TPM, BitLocker) si leggono in modo meno preciso.
-    $g.Avvio = Leggi { (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control' -Name PEFirmwareType -ErrorAction Stop).PEFirmwareType }
+    $g.Avvio = Leggi {
+        if ($env:firmware_type -eq 'UEFI') { 2 }
+        elseif ($env:firmware_type -eq 'Legacy') { 1 }
+        else { (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control' -Name PEFirmwareType -ErrorAction Stop).PEFirmwareType }
+    }
     $g.SecureBoot = Leggi { [pscustomobject]@{ Attivo = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State' -Name UEFISecureBootEnabled -ErrorAction Stop).UEFISecureBootEnabled } }
     $g.Tpm = Leggi { Get-CimInstance -Namespace 'root/cimv2/Security/MicrosoftTpm' -ClassName Win32_Tpm -ErrorAction Stop | Select-Object -First 1 SpecVersion, IsEnabled_InitialValue, IsActivated_InitialValue }
     $g.TpmDispositivi = Leggi { [pscustomobject]@{ Nomi = @(Get-CimInstance -ClassName Win32_PnPEntity -Filter "PNPClass='SecurityDevices'" -ErrorAction Stop | ForEach-Object { [string]$_.Name }) } }

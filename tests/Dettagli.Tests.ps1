@@ -171,6 +171,13 @@ Describe 'Hardware, software e licenze -> testi del foglio Dettagli' {
         }
     }
 
+    It 'avvio UEFI dedotto da Secure Boot se il tipo di firmware non si legge' {
+        $g = New-GrezzoCompleto
+        $g.Avvio = $null
+        $d = InModuleScope HelpDeskToolkit -Parameters @{ G = $g } { param($G) ConvertTo-HDDettagliPC -Grezzo $G -SistemaOperativo 'Windows 10 Pro' -Processore $G.Processori[0].Name }
+        $d.Dettagli.Avvio | Should -Be 'UEFI'
+    }
+
     It 'su un PC che non ha dato nessun dato in più non si blocca' {
         $vuoto = InModuleScope HelpDeskToolkit { ConvertTo-HDDettagliPC -Grezzo ([pscustomobject]@{ NomePC = 'X' }) }
         $vuoto.Software | Should -BeNullOrEmpty
