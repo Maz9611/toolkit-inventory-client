@@ -141,9 +141,15 @@ Invoke-Collaudo 'Dati di questo PC per il censimento' {
     if ($vuotiDettagli.Count -gt 0) { 'Dettagli vuoti (controlla se è normale su questo PC): ' + ($vuotiDettagli -join ', ') }
     'Programmi trovati: {0} (primi 5: {1})' -f @($r.Software).Count, ((@($r.Software) | Select-Object -First 5 | ForEach-Object { $_.Nome }) -join '; ')
     if (-not $r.Dettagli['Smart']) { 'SMART non letto: è normale da utente normale, rifai la prova come amministratore.' }
+    $prodotti = @($r.Autodesk | Where-Object { $_ })
+    if ($null -eq $r.Autodesk) { 'Autodesk: niente di Autodesk su questo PC' }
+    else {
+        'Autodesk: {0} prodotti{1}' -f $prodotti.Count, $(if ($r.AutodeskNote) { ' (note: ' + $r.AutodeskNote + ')' } else { '' })
+        foreach ($p in $prodotti) { '  {0} | {1} | {2} | {3} | ultimo avvio {4} | installato {5} | seriale {6}' -f $p.Prodotto, $p.Versione, $p.Licenza, $p.Account, $p.UltimoAvvio, $p.Installato, $p.Seriale }
+    }
     if ($r.TempiRaccolta) {
         $t = $r.TempiRaccolta
-        'Tempo di lettura: {0:N1} s in tutto (in parallelo: licenza {1:N1} s, programmi {2:N1} s, dischi {3:N1} s, aggiornamenti {4:N1} s, amministratori {5:N1} s; il resto {6:N1} s)' -f ($t.Totale / 1000), ($t.Licenza / 1000), ($t.Programmi / 1000), ($t.Dischi / 1000), ($t.Aggiornamenti / 1000), ($t.Amministratori / 1000), ($t.Principale / 1000)
+        'Tempo di lettura: {0:N1} s in tutto (in parallelo: licenza {1:N1} s, programmi {2:N1} s, dischi {3:N1} s, aggiornamenti {4:N1} s, amministratori {5:N1} s, Autodesk {6:N1} s; il resto {7:N1} s)' -f ($t.Totale / 1000), ($t.Licenza / 1000), ($t.Programmi / 1000), ($t.Dischi / 1000), ($t.Aggiornamenti / 1000), ($t.Amministratori / 1000), ($t.Autodesk / 1000), ($t.Principale / 1000)
     }
 }
 

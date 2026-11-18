@@ -191,6 +191,29 @@ Ogni censimento sul PC scrive anche:
 - La lettura dei dati del PC richiede pochi secondi: le parti lente (licenza di Windows, programmi
   installati, dischi) vengono lette in parallelo. `Avvia-Prova.cmd` mostra quanto ci mette ogni parte.
 
+### Foglio Autodesk (AutoCAD, Revit, Inventor...)
+
+Nasce da solo quando un PC ha prodotti Autodesk: **una riga per ogni prodotto installato su ogni PC**,
+così con i filtri si contano subito le installazioni per prodotto, versione e tipo di licenza (per
+esempio per confrontarle con un preventivo di Autodesk).
+
+| Colonna | Da dove viene | Esempio |
+|---|---|---|
+| Prodotto, Versione, Installato il | "Installazione applicazioni" di Windows (senza componenti, librerie e visualizzatori) | `AutoCAD 2024`, `24.3.61.0` |
+| Licenza | dalla versione 2020: la licenza registrata sul PC, letta con lo strumento di Autodesk `AdskLicensingInstHelper list` (solo lettura); prima del 2020: seriale o server FlexNet | `Utente con nome (abbonamento, account Autodesk)`, `Singola con seriale`, `Di rete (server licsrv01)`, `Nessuna licenza scelta`; se la licenza arriva da un'altra offerta (es. una Collection) lo dice |
+| Account Autodesk | l'email con cui ci si è collegati ad Autodesk, per ogni utente di Windows del PC (gli altri utenti solo **avviando come amministratore**) | `mario.rossi@studio.it (mario)` |
+| Ultimo avvio | data dei file di Prefetch di Windows, **solo avviando come amministratore**. Più versioni che usano lo stesso programma (es. AutoCAD 2022 e 2024, o AutoCAD e Civil 3D) hanno la stessa data | `01/10/2026` |
+| Seriale | per le versioni con licenza a seriale; i seriali generici usati dalle copie non originali sono segnalati | `666-69696969 (seriale delle copie non originali)` |
+| Note | la scrivi tu (es. "da disinstallare", "licenza di Mario"): resta anche quando il foglio si aggiorna | |
+
+- Quando ricensisci un PC le sue righe si aggiornano: un prodotto disinstallato sparisce.
+- Nel Riepilogo: seriale delle copie non originali (urgente), prodotto senza licenza, prodotto non
+  avviato da più di 12 mesi (`AutodeskMesi` in `config.psd1`).
+- La pagina per il cliente ha la sezione "Software Autodesk": per prodotto e tipo di licenza quanti e
+  quali PC, e gli account usati.
+- Il foglio contiene le email degli account Autodesk degli utenti: trattalo come un dato aziendale
+  riservato del cliente.
+
 ### Le regole, per fidarsi del risultato
 
 - **Come ritrova il PC nell'Excel.** Prima cerca il MAC (di qualsiasi scheda del PC), poi il
@@ -282,8 +305,8 @@ Ogni comando ha la guida: `Get-Help Invoke-ScansioneRete -Full`. Quelli che scri
 
 ## Cosa è stato verificato e cosa no
 
-- **Test automatici:** ne passano 376 (Excel con più fogli, scansione anche su più reti, abbinamenti,
-  formati delle colonne, fogli Dettagli, Software, Riepilogo e Storico, riepilogo per il cliente,
+- **Test automatici:** ne passano 389 (Excel con più fogli, scansione anche su più reti, abbinamenti,
+  formati delle colonne, fogli Dettagli, Software, Riepilogo, Storico e Autodesk, riepilogo per il cliente,
   verifica postazione, motore dell'exe). A ogni
   modifica girano anche su Windows PowerShell 5.1 con GitHub Actions, che crea l'exe e lo avvia. PSScriptAnalyzer, con le regole di compatibilità per Windows PowerShell 5.1,
   non segnala problemi.
@@ -293,6 +316,8 @@ Ogni comando ha la guida: `Get-Help Invoke-ScansioneRete -Full`. Quelli che scri
 - **Non ancora provati su un PC vero:**
   - la lettura dei dati per i fogli Dettagli e Software (provata con dati simulati), in particolare
     batteria, amministratori locali e ultimo aggiornamento;
+  - il foglio Autodesk su PC con AutoCAD veri (licenza, account e ultimo avvio sono provati con dati
+    simulati e con un PC simulato);
   - il riepilogo per il cliente su un censimento vero;
   - `ToolkitHelpDesk.exe` usato con la finestra visibile;
   - la scansione su più reti e su una rete aziendale grande.

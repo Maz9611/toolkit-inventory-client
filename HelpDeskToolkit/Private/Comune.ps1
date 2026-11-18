@@ -34,6 +34,7 @@ function Get-HDConfigPredefinita {
             RamMinimaGB                   = 8
             BiosAnni                      = 6
             CensimentoMesi                = 6
+            AutodeskMesi                  = 12
         }
     }
 }

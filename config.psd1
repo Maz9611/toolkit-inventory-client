@@ -46,5 +46,6 @@
         RamMinimaGB                   = 8    # riepilogo: "Poca memoria RAM" sotto questa quantità
         BiosAnni                      = 6    # riepilogo: "BIOS fermo da anni" oltre questa età
         CensimentoMesi                = 6    # riepilogo: "PC non censiti da tempo" oltre questi mesi
+        AutodeskMesi                  = 12   # riepilogo: prodotto Autodesk "non avviato" da più di questi mesi
     }
 }

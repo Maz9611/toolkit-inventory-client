@@ -56,6 +56,24 @@ function ConvertTo-HDHtmlRiepilogo {
         if ($senza.Count -gt 0) { $sezionePc += "`n" + ('<p class="nota">Senza problemi: {0}.</p>' -f (& $h ($senza -join ', '))) }
     }
 
+    # Software Autodesk: per ogni prodotto e tipo di licenza quanti e quali PC, poi gli account usati
+    $sezioneAutodesk = ''
+    $installazioni = @(foreach ($questo in $elencoPc) {
+            foreach ($riga in @($questo.Autodesk | Where-Object { $_ })) {
+                [pscustomobject]@{ PC = $questo.Nome; Prodotto = [string]$riga['Prodotto']; Licenza = [string]$riga['Licenza']; Account = [string]$riga['Account'] }
+            }
+        })
+    if ($installazioni.Count -gt 0) {
+        $gruppi = @($installazioni | Group-Object { $_.Prodotto + '|' + $_.Licenza } | Sort-Object { $_.Group[0].Prodotto }, { $_.Group[0].Licenza })
+        $righe = foreach ($g in $gruppi) {
+            $nomi = @($g.Group | ForEach-Object { $_.PC } | Sort-Object -Unique)
+            '<tr><td class="controllo">{0}</td><td>{1}<div class="nota">{2}</div></td><td class="num">{3}</td></tr>' -f (& $h $g.Group[0].Prodotto), (& $h $g.Group[0].Licenza), (& $h ($nomi -join ', ')), (& $h (Format-HDQuantita $nomi.Count 'PC' 'PC'))
+        }
+        $sezioneAutodesk = "<h2>Software Autodesk</h2>`n<table class=`"tabella-larga`"><thead><tr><th>Prodotto</th><th>Licenza e PC</th><th class=`"num`">PC</th></tr></thead><tbody>`n" + (@($righe) -join "`n") + "`n</tbody></table>"
+        $account = @($installazioni | ForEach-Object { $_.Account -split ';\s*' } | Where-Object { $_ } | ForEach-Object { ($_ -replace '\s*\(.*$', '').Trim() } | Sort-Object -Unique)
+        if ($account.Count -gt 0) { $sezioneAutodesk += "`n" + ('<p class="nota">Account Autodesk con cui si è entrati sui PC: {0}.</p>' -f (& $h ($account -join ', '))) }
+    }
+
     # Il parco in numeri
     $contaSe = { param($Filtro) @($elencoPc | Where-Object $Filtro).Count }
     $numeri = [ordered]@{}
@@ -141,6 +159,7 @@ function ConvertTo-HDHtmlRiepilogo {
 </section>
 $sezioneSintesi
 $sezionePc
+$sezioneAutodesk
 <h2>Il parco PC in numeri</h2>
 <dl class="dati">
 $dati
@@ -184,7 +203,9 @@ function Export-RiepilogoCensimento {
     $adesso = Get-Date
     $dettagli = @()
     if ($tabella.Dettagli) { $dettagli = @($tabella.Dettagli.Righe | Where-Object { $_ }) }
-    $pc = @(Get-HDPcCensiti -Righe @($tabella.Righe | Where-Object { $_ }) -Dettagli $dettagli)
+    $autodesk = @()
+    if ($tabella.Autodesk -and -not $tabella.Autodesk.Conflitto) { $autodesk = @($tabella.Autodesk.Righe | Where-Object { $_ }) }
+    $pc = @(Get-HDPcCensiti -Righe @($tabella.Righe | Where-Object { $_ }) -Dettagli $dettagli -Autodesk $autodesk)
     $punti = @(Get-HDPuntiRiepilogo -PC $pc -Soglie $cfg.Soglie -Adesso $adesso)
     $cambiamenti = @()
     if ($tabella.Storico -and -not $tabella.Storico.Conflitto) {

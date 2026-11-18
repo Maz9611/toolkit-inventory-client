@@ -54,7 +54,7 @@ function Get-HDSoglieRiepilogo {
     param([hashtable]$Soglie)
     $base = @{
         DiscoAttenzionePct = 10; DiscoAttenzioneGB = 20; DiscoCriticoPct = 5; DiscoCriticoGB = 10
-        AggiornamentiGiorniAttenzione = 45; RamMinimaGB = 8; BiosAnni = 6; CensimentoMesi = 6
+        AggiornamentiGiorniAttenzione = 45; RamMinimaGB = 8; BiosAnni = 6; CensimentoMesi = 6; AutodeskMesi = 12
     }
     if ($Soglie) { foreach ($k in @($base.Keys)) { if ($null -ne $Soglie[$k] -and "$($Soglie[$k])" -ne '') { $base[$k] = [double]$Soglie[$k] } } }
     $base
@@ -110,8 +110,19 @@ function Get-HDWindowsSenzaAggiornamenti {
 
 function Get-HDPcCensiti {
     # PC del foglio principale con i loro dati del foglio Dettagli (stesso numero di serie, altrimenti stesso
-    # nome). Solo i PC censiti (sistema operativo o dettagli): i dispositivi visti solo dalla scansione no.
-    param([object[]]$Righe, [object[]]$Dettagli)
+    # nome) e i loro prodotti Autodesk. Solo i PC censiti (sistema operativo o dettagli): i dispositivi
+    # visti solo dalla scansione no.
+    param([object[]]$Righe, [object[]]$Dettagli, [object[]]$Autodesk)
+    $prodotti = @{}
+    foreach ($r in @($Autodesk | Where-Object { $_ })) {
+        $s = Get-HDNumeroSerie $r.Valori['SerialNumber']
+        $chiavi = @('H:' + (ConvertTo-HDNomeHost $r.Valori['Hostname']))
+        if ($s) { $chiavi = @('S:' + $s) + $chiavi }
+        foreach ($k in $chiavi) {
+            if (-not $prodotti.ContainsKey($k)) { $prodotti[$k] = New-Object System.Collections.Generic.List[object] }
+            $prodotti[$k].Add($r.Valori)
+        }
+    }
     $perSerie = @{}
     $perNome = @{}
     foreach ($d in @($Dettagli | Where-Object { $_ })) {
@@ -129,10 +140,13 @@ function Get-HDPcCensiti {
         elseif ($h -and $perNome.ContainsKey($h)) { $det = $perNome[$h] }
         if (-not $v['OS'] -and -not $det) { continue }
         if (-not $det) { $det = @{} }
+        $suoi = @()
+        if ($s -and $prodotti.ContainsKey('S:' + $s)) { $suoi = $prodotti['S:' + $s].ToArray() }
+        elseif ($h -and $prodotti.ContainsKey('H:' + $h)) { $suoi = $prodotti['H:' + $h].ToArray() }
         $nome = [string]$v['Hostname']
         if (-not $nome) { $nome = [string]$v['SerialNumber'] }
         if (-not $nome) { $nome = [string]$v['IndirizzoIP'] }
-        [pscustomobject]@{ Nome = $nome; Utilizzatore = [string]$v['Utilizzatore']; Valori = $v; Dettagli = $det }
+        [pscustomobject]@{ Nome = $nome; Utilizzatore = [string]$v['Utilizzatore']; Valori = $v; Dettagli = $det; Autodesk = $suoi }
     }
 }
 
@@ -222,6 +236,15 @@ function Get-HDPuntiRiepilogo {
                 $pieni = @(Get-HDVolumiTesto $p.Valori['FreeDiskPct'] | Where-Object { $_.Pct -lt $s.DiscoCriticoPct -or $_.LiberoGB -lt $s.DiscoCriticoGB })
                 if ($pieni.Count -eq 0) { return $false }
                 (@($pieni | ForEach-Object { 'Disco {0} pieno ({1} GB liberi)' -f $_.Unita, $_.LiberoGB }) -join '; ')
+            }
+        }
+        @{
+            Priorita = 'Urgente'; Punto = 'Autodesk con seriale delle copie non originali'
+            Prova    = {
+                param($p)
+                $copie = @($p.Autodesk | Where-Object { $_ -and [string]$_['Seriale'] -match 'copie non originali' } | ForEach-Object { '{0}: seriale delle copie non originali ({1})' -f $_['Prodotto'], ([string]$_['Seriale'] -replace '\s*\(.*$', '') })
+                if ($copie.Count -eq 0) { return $false }
+                $copie -join '; '
             }
         }
         @{
@@ -315,6 +338,28 @@ function Get-HDPuntiRiepilogo {
             }
         }
         @{
+            Priorita = 'Da controllare'; Punto = 'Autodesk senza licenza'
+            Prova    = {
+                param($p)
+                $senza = @($p.Autodesk | Where-Object { $_ -and [string]$_['Licenza'] -like 'Nessuna licenza*' } | ForEach-Object { [string]$_['Prodotto'] })
+                if ($senza.Count -eq 0) { return $false }
+                (Join-HDElenco $senza) + ' senza licenza'
+            }
+        }
+        @{
+            Priorita = 'Da controllare'; Punto = 'Autodesk non usato da tempo'
+            Prova    = {
+                param($p)
+                $limite = (& $quando $p).AddMonths(-1 * [int]$s.AutodeskMesi)
+                $fermi = @($p.Autodesk | Where-Object { $_ } | ForEach-Object {
+                        $d = ConvertFrom-HDDataTesto $_['UltimoAvvio']
+                        if ($d -and $d -lt $limite) { '{0} non avviato dal {1}' -f $_['Prodotto'], $d.ToString('dd/MM/yyyy', $script:HDInvariante) }
+                    })
+                if ($fermi.Count -eq 0) { return $false }
+                $fermi -join '; '
+            }
+        }
+        @{
             Priorita = 'Da controllare'; Punto = 'BIOS vecchio'
             Prova    = {
                 param($p)
@@ -380,7 +425,9 @@ function Get-HDRigheRiepilogoTabella {
     param([Parameter(Mandatory)]$Tabella, [hashtable]$Soglie, [datetime]$Adesso = (Get-Date))
     $dettagli = @()
     if ($Tabella.Dettagli) { $dettagli = @($Tabella.Dettagli.Righe | Where-Object { $_ }) }
-    $pc = @(Get-HDPcCensiti -Righe @($Tabella.Righe | Where-Object { $_ }) -Dettagli $dettagli)
+    $autodesk = @()
+    if ($Tabella.PSObject.Properties['Autodesk'] -and $Tabella.Autodesk) { $autodesk = @($Tabella.Autodesk.Righe | Where-Object { $_ }) }
+    $pc = @(Get-HDPcCensiti -Righe @($Tabella.Righe | Where-Object { $_ }) -Dettagli $dettagli -Autodesk $autodesk)
     $punti = @(Get-HDPuntiRiepilogo -PC $pc -Soglie $Soglie -Adesso $Adesso)
     ConvertTo-HDRigheRiepilogo -PerPc @(Get-HDRiepilogoPerPc -PC $pc -Punti $punti) -Adesso $Adesso
 }

@@ -395,6 +395,8 @@ function ConvertTo-HDRecordCensimento {
         TempiRaccolta     = $Grezzo.Tempi
         Dettagli          = $extra.Dettagli
         Software          = $extra.Software
+        Autodesk          = (ConvertTo-HDAutodeskPC -Programmi $Grezzo.Programmi -Autodesk $Grezzo.Autodesk)
+        AutodeskNote      = $(if ($Grezzo.Autodesk) { (@($Grezzo.Autodesk.Note) -join '; ') } else { '' })
         Rilevato          = $Grezzo.Raccolto
     }
 }

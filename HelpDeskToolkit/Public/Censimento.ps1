@@ -81,6 +81,83 @@ $script:HDRaccoltaCensimento = {
             catch { $r = $null }
             @{ Amministratori = $r; Ms = $t.ElapsedMilliseconds }
         }
+        Autodesk       = {
+            # Prodotti Autodesk: licenza registrata (AdskLicensingInstHelper list, sola lettura), account
+            # Autodesk (LoginState.xml dei profili), server FlexNet, seriali delle versioni vecchie e ultimo
+            # avvio (Prefetch, solo da amministratore). Niente se sul PC non c'è niente di Autodesk.
+            $t = [System.Diagnostics.Stopwatch]::StartNew()
+            $radici = @('HKLM:\SOFTWARE\Autodesk', 'HKLM:\SOFTWARE\WOW6432Node\Autodesk') | Where-Object { Test-Path -LiteralPath $_ }
+            $helper = ''
+            foreach ($base in @(${env:ProgramFiles(x86)}, $env:ProgramFiles) | Where-Object { $_ }) {
+                $prova = Join-Path $base 'Common Files\Autodesk Shared\AdskLicensing\Current\helper\AdskLicensingInstHelper.exe'
+                if (-not $helper -and (Test-Path -LiteralPath $prova)) { $helper = $prova }
+            }
+            if (@($radici).Count -eq 0 -and -not $helper) { return @{ Autodesk = $null; Ms = $t.ElapsedMilliseconds } }
+            $a = [ordered]@{ Licenze = ''; Account = @(); Rete = @(); Seriali = @(); Avvii = $null; Note = @() }
+            if ($helper) {
+                try {
+                    $psi = New-Object System.Diagnostics.ProcessStartInfo($helper, 'list')
+                    $psi.UseShellExecute = $false
+                    $psi.RedirectStandardOutput = $true
+                    $psi.RedirectStandardError = $true
+                    $psi.CreateNoWindow = $true
+                    $processo = [System.Diagnostics.Process]::Start($psi)
+                    $uscita = $processo.StandardOutput.ReadToEndAsync()
+                    [void]$processo.StandardError.ReadToEndAsync()
+                    if ($processo.WaitForExit(20000)) { $a.Licenze = $uscita.Result }
+                    else {
+                        $a.Note += 'AdskLicensingInstHelper non ha risposto in 20 secondi'
+                        try { $processo.Kill() } catch { $a.Note += 'processo non chiuso' }
+                    }
+                }
+                catch { $a.Note += 'AdskLicensingInstHelper: ' + $_.Exception.Message }
+            }
+            else { $a.Note += 'AdskLicensingInstHelper non trovato' }
+            # account Autodesk: LoginState.xml di ogni profilo (quelli degli altri utenti solo da amministratore)
+            $profili = @()
+            if ($env:USERPROFILE) {
+                try { $profili = @(Get-ChildItem -LiteralPath (Split-Path -Parent $env:USERPROFILE) -Directory -ErrorAction Stop) } catch { $profili = @(Get-Item -LiteralPath $env:USERPROFILE) }
+            }
+            foreach ($cartella in $profili) {
+                $file = Join-Path $cartella.FullName 'AppData\Local\Autodesk\Web Services\LoginState.xml'
+                try {
+                    if (Test-Path -LiteralPath $file) { $a.Account += [pscustomobject]@{ Utente = $cartella.Name; Testo = [System.IO.File]::ReadAllText($file) } }
+                }
+                catch { $a.Note += 'LoginState di ' + $cartella.Name + ' non leggibile' }
+            }
+            # licenza di rete FlexNet: variabile ADSKFLEX_LICENSE_FILE o registro di FLEXlm
+            foreach ($ambito in 'Machine', 'User') {
+                $v = [Environment]::GetEnvironmentVariable('ADSKFLEX_LICENSE_FILE', $ambito)
+                if ($v) { $a.Rete += $v }
+            }
+            foreach ($chiave in 'HKLM:\SOFTWARE\FLEXlm License Manager', 'HKCU:\SOFTWARE\FLEXlm License Manager') {
+                try { $v = (Get-ItemProperty -LiteralPath $chiave -Name ADSKFLEX_LICENSE_FILE -ErrorAction Stop).ADSKFLEX_LICENSE_FILE; if ($v) { $a.Rete += $v } }
+                catch { $v = $null }
+            }
+            # nome e seriale dalle chiavi di AutoCAD (le versioni con licenza a seriale lo scrivono lì)
+            foreach ($radice in $radici) {
+                foreach ($famiglia in 'AutoCAD', 'AutoCAD LT') {
+                    $base = Join-Path $radice $famiglia
+                    if (-not (Test-Path -LiteralPath $base)) { continue }
+                    foreach ($release in @(Get-ChildItem -LiteralPath $base -ErrorAction SilentlyContinue)) {
+                        foreach ($k in @(Get-ChildItem -LiteralPath $release.PSPath -ErrorAction SilentlyContinue)) {
+                            try { $p = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction Stop } catch { continue }
+                            if ($p.ProductName) { $a.Seriali += [pscustomobject]@{ Prodotto = [string]$p.ProductName; Seriale = [string]$p.SerialNumber } }
+                        }
+                    }
+                }
+            }
+            # ultimo avvio: data dei file di Prefetch dei programmi Autodesk (servono i diritti di amministratore)
+            if ($env:windir) {
+                try {
+                    $a.Avvii = @(Get-ChildItem -LiteralPath (Join-Path $env:windir 'Prefetch') -Filter '*.pf' -ErrorAction Stop |
+                            Where-Object { $_.Name -match '^(ACAD|ACADLT|REVIT|INVENTOR|3DSMAX|MAYA|ROAMER)\.EXE-' } |
+                            ForEach-Object { [pscustomobject]@{ Programma = ($_.Name -replace '\.EXE-.*$', ''); Data = $_.LastWriteTime } })
+                }
+                catch { $a.Avvii = $null }
+            }
+            @{ Autodesk = [pscustomobject]$a; Ms = $t.ElapsedMilliseconds }
+        }
     }
     $inCorso = @{}
     $pool = $null
@@ -283,7 +360,7 @@ function Get-HDModelloCensimento {
 function Get-HDFogliPrincipali {
     # I fogli in cui cercare il censimento: tutti tranne quelli del toolkit (Dettagli, Software, Riepilogo...)
     param([object[]]$Fogli)
-    $nostri = @($script:HDFoglioDettagli, $script:HDFoglioSoftware, $script:HDFoglioDatiSoftware, $script:HDFoglioRiepilogo, $script:HDFoglioStorico)
+    $nostri = @($script:HDFoglioDettagli, $script:HDFoglioSoftware, $script:HDFoglioDatiSoftware, $script:HDFoglioRiepilogo, $script:HDFoglioStorico, $script:HDFoglioAutodesk)
     $principali = @($Fogli | Where-Object { $nostri -notcontains $_.Nome })
     if ($principali.Count -eq 0) { return $Fogli }
     $principali
@@ -303,6 +380,7 @@ function Get-HDTabellaCensimento {
     $t | Add-Member -NotePropertyName DatiSoftware -NotePropertyValue (ConvertTo-HDTabellaFoglio -Fogli $fogli -Nome $script:HDFoglioDatiSoftware -Colonne $script:HDColonneDatiSoftware -Nascosto)
     $t | Add-Member -NotePropertyName Software -NotePropertyValue (Get-HDStatoFoglioSoftware $fogli)
     $t | Add-Member -NotePropertyName Storico -NotePropertyValue (ConvertTo-HDTabellaFoglio -Fogli $fogli -Nome $script:HDFoglioStorico -Colonne $script:HDColonneStorico)
+    $t | Add-Member -NotePropertyName Autodesk -NotePropertyValue (ConvertTo-HDTabellaFoglio -Fogli $fogli -Nome $script:HDFoglioAutodesk -Colonne $script:HDColonneAutodesk)
     $t | Add-Member -NotePropertyName Riepilogo -NotePropertyValue (Get-HDStatoFoglioRiscritto -Fogli $fogli -Nome $script:HDFoglioRiepilogo -Colonne $script:HDColonneRiepilogo -Titolo 'Da controllare')
     $t
 }
@@ -496,13 +574,15 @@ function Add-HDExtraATabelle {
     $modDettagli = @{}
     $modDati = @{}
     $riepilogo = @{}
-    foreach ($nome in 'Dettagli', 'Software', 'DatiSoftware', 'Storico', 'Riepilogo') {
+    foreach ($nome in 'Dettagli', 'Software', 'DatiSoftware', 'Storico', 'Riepilogo', 'Autodesk') {
         if (-not $Tabella.PSObject.Properties[$nome]) { continue }
         $t = $Tabella.$nome
         if ($t -and $t.Conflitto) { Write-Warning ("Nell'Excel c'è già un foglio '{0}' con un altro contenuto: quei dati non vengono scritti (rinomina il tuo foglio per averli)." -f $t.Nome) }
     }
     $conDettagli = $Tabella.Dettagli -and -not $Tabella.Dettagli.Conflitto
     $conSoftware = $Tabella.DatiSoftware -and -not $Tabella.DatiSoftware.Conflitto -and $Tabella.Software -and -not $Tabella.Software.Conflitto
+    $conAutodesk = $Tabella.PSObject.Properties['Autodesk'] -and $Tabella.Autodesk -and -not $Tabella.Autodesk.Conflitto
+    $autodesk = @{}
     if ($conDettagli -and $Tabella.Dettagli.Esiste) { Add-HDColonneMancanti -Tabella $Tabella.Dettagli -Colonne $Tabella.Dettagli.DaAggiungere -Modifiche $modDettagli }
     foreach ($ril in $Rilevazioni) {
         $rec = $ril.Dati
@@ -527,12 +607,36 @@ function Add-HDExtraATabelle {
             [void](Add-HDDettagliATabella -Tabella $Tabella.DatiSoftware -Valori $valori -Modifiche $modDati)
             $riepilogo[[string]$rec.Hostname] = [pscustomobject]@{ Totale = $programmi.Count }
         }
+        if ($conAutodesk -and $null -ne $rec.Autodesk) {
+            # prodotti Autodesk del PC (anche nessuno: le righe vecchie del PC spariscono)
+            $utilizzatore = [string]$ril.Manuali['Utilizzatore']
+            if (-not $utilizzatore) {
+                $s = Get-HDNumeroSerie $rec.SerialNumber
+                $h = ConvertTo-HDNomeHost $rec.Hostname
+                $riga = @($Tabella.Righe | Where-Object { ($s -and (Get-HDNumeroSerie $_.Valori['SerialNumber']) -eq $s) -or ($h -and (ConvertTo-HDNomeHost $_.Valori['Hostname']) -eq $h) }) | Select-Object -First 1
+                if ($riga) { $utilizzatore = [string]$riga.Valori['Utilizzatore'] }
+            }
+            $autodesk[[string]$rec.Hostname] = [pscustomobject]@{ Hostname = [string]$rec.Hostname; SerialNumber = [string]$rec.SerialNumber; Utilizzatore = $utilizzatore; Rilevato = $data; Righe = @($rec.Autodesk) }
+        }
     }
     $extra = @(@{ Tabella = $Tabella.Dettagli; Modifiche = $modDettagli })
     if ($riepilogo.Count -gt 0) {
         # il foglio Software si ricostruisce da DatiSoftware (già aggiornato in memoria)
         $extra += @{ Tabella = $Tabella.Software; Riscrivi = @(ConvertTo-HDRigheSoftware $Tabella.DatiSoftware.Righe) }
         $extra += @{ Tabella = $Tabella.DatiSoftware; Modifiche = $modDati }
+    }
+    if ($autodesk.Count -gt 0) {
+        $valori = @(Get-HDRigheAutodesk -Esistenti @($Tabella.Autodesk.Righe | Where-Object { $_ }) -Nuovi @($autodesk.Values))
+        # anche in memoria (il foglio Riepilogo si calcola da qui)
+        $Tabella.Autodesk.Righe.Clear()
+        $numero = $Tabella.Autodesk.RigaIntestazione
+        foreach ($v in $valori) { $numero++; $Tabella.Autodesk.Righe.Add([pscustomobject]@{ Numero = $numero; Valori = $v }) }
+        # il foglio nasce solo se c'è almeno un prodotto Autodesk
+        if ($valori.Count -gt 0 -or $Tabella.Autodesk.Esiste) {
+            # @(foreach) anche con una riga sola: ogni riga resta un elenco di celle
+            $righeFoglio = @(foreach ($v in $valori) { , @($script:HDColonneAutodesk | ForEach-Object { [string]$v[$_.Chiave] }) })
+            $extra += @{ Tabella = $Tabella.Autodesk; Riscrivi = $righeFoglio }
+        }
     }
     [pscustomobject]@{ Extra = $extra; Riepilogo = $riepilogo }
 }
@@ -756,6 +860,15 @@ function Show-HDSchedaCensimento {
             }
             elseif ([string]$d[$c.Chiave] -match 'GUASTO|ATTENZIONE|^Non attivato') { $colore = 'Red' }
             Write-Host ('  {0,-19}{1}' -f $c.Titolo, $d[$c.Chiave]) -ForegroundColor $colore
+        }
+    }
+    $prodotti = @($Record.Autodesk | Where-Object { $_ })
+    if ($prodotti.Count -gt 0) {
+        Write-Host ' Autodesk (foglio Autodesk):' -ForegroundColor White
+        foreach ($p in $prodotti) {
+            $colore = 'Gray'
+            if ([string]$p.Seriale -match 'copie non originali') { $colore = 'Red' } elseif ([string]$p.Licenza -like 'Nessuna*') { $colore = 'Yellow' }
+            Write-Host ('  {0,-19}{1}; {2}; ultimo avvio {3}' -f $p.Prodotto, $p.Licenza, $(if ($p.Account) { $p.Account } else { 'nessun account' }), $(if ($p.UltimoAvvio) { $p.UltimoAvvio } else { 'non letto' })) -ForegroundColor $colore
         }
     }
     Write-Host ''

@@ -222,6 +222,15 @@ function Show-DatiPc {
                 elseif (($c.Chiave -eq 'Windows11' -and $valore -match '^Da verificare') -or $valore -match 'usurata|utente del PC') { $script:GrigliaPc.Rows[$i].DefaultCellStyle.BackColor = [System.Drawing.Color]::LemonChiffon }
             }
         }
+        # Prodotti Autodesk (foglio Autodesk): licenza, account, ultimo avvio
+        foreach ($p in @($r.Autodesk | Where-Object { $_ })) {
+            $testo = '{0}; {1}' -f $p.Licenza, $(if ($p.Account) { $p.Account } else { 'nessun account Autodesk' })
+            if ($p.UltimoAvvio) { $testo += '; ultimo avvio ' + $p.UltimoAvvio }
+            if ($p.Seriale) { $testo += '; seriale ' + $p.Seriale }
+            $i = $script:GrigliaPc.Rows.Add([string]$p.Prodotto, $testo)
+            if ([string]$p.Seriale -match 'copie non originali') { $script:GrigliaPc.Rows[$i].DefaultCellStyle.BackColor = [System.Drawing.Color]::MistyRose }
+            elseif ([string]$p.Licenza -like 'Nessuna*') { $script:GrigliaPc.Rows[$i].DefaultCellStyle.BackColor = [System.Drawing.Color]::LemonChiffon }
+        }
         $attuali = @{}
         $tabella = Get-TabellaAttuale
         if ($tabella) {

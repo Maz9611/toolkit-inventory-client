@@ -71,6 +71,18 @@ clienti. Funzione principale: censimento PC su un Excel (.xlsx) con colonne fiss
 - `Export-RiepilogoCensimento`: pagina HTML per il cliente in Report (stesso CSS del report di verifica).
   Mai "la tua azienda" o simili nei testi per il cliente.
 
+## Foglio Autodesk (Private/CensimentoLicenze.ps1)
+
+- Una riga per prodotto Autodesk per PC (`$script:HDColonneAutodesk`), nasce solo se c'è almeno un prodotto.
+  La raccolta (blocco `Autodesk` in `$lente`) prende: uscita di `AdskLicensingInstHelper list` (JSON,
+  sola lettura, timeout 20 s), `LoginState.xml` di ogni profilo, `ADSKFLEX_LICENSE_FILE`, nome e seriale
+  dalle chiavi di AutoCAD, date dei file di Prefetch (solo da amministratore: altrimenti `Avvii = $null`).
+  `ConvertTo-HDAutodeskPC` (pura) fa le righe: `$null` = non raccolto, elenco vuoto = nessun prodotto.
+- A ogni censimento il foglio si riscrive (`Get-HDRigheAutodesk`): le righe del PC censito si sostituiscono,
+  le Note scritte a mano restano (stesso PC e prodotto). Le righe in memoria servono al Riepilogo.
+- Formati non documentati da Autodesk (uscita dell'helper, LoginState.xml): la lettura è tollerante; se un
+  PC vero dà altro, aggiungere il caso e un test in `tests/Autodesk.Tests.ps1`.
+
 ## Fogli Dettagli e Software (Private/CensimentoDettagli.ps1)
 
 - Colonne in `$script:HDColonneDettagli` e `$script:HDColonneSoftware`; i dati grezzi in più li raccoglie
