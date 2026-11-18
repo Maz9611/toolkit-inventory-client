@@ -214,6 +214,18 @@ esempio per confrontarle con un preventivo di Autodesk).
 - Il foglio contiene le email degli account Autodesk degli utenti: trattalo come un dato aziendale
   riservato del cliente.
 
+**Provarlo prima di andare dal cliente:**
+
+- *Con dati simulati, in 5 minuti*: in Windows Sandbox (`Prova-InSandbox.ps1`) o in una VM senza
+  Autodesk apri Windows PowerShell **come amministratore** nella cartella del toolkit e lancia
+  `powershell -ExecutionPolicy Bypass -File .\Simula-Autodesk.ps1`. Crea finti AutoCAD 2024 (utente con
+  nome), Civil 3D 2024 (licenza di rete), Revit 2024 (licenza di una Collection, fermo da 20 mesi) e
+  AutoCAD LT 2019 (seriale delle copie non originali), poi stampa cosa deve comparire nel foglio. Lancia
+  `Avvia-Prova.cmd` e confronta. Con `-Rimuovi` toglie tutto. **Mai su un PC vero.**
+- *Con AutoCAD vero*: in una VM Windows 11 installa la versione di prova di AutoCAD da autodesk.com,
+  entra con un account Autodesk, apri AutoCAD una volta e chiudilo, poi lancia `Avvia-Prova.cmd` (una
+  volta da utente normale e una da amministratore). È la prova che conferma i formati di Autodesk.
+
 ### Le regole, per fidarsi del risultato
 
 - **Come ritrova il PC nell'Excel.** Prima cerca il MAC (di qualsiasi scheda del PC), poi il
@@ -359,6 +371,7 @@ Avvia-Toolkit.cmd        apre la finestra senza exe
 Censisci-PC.cmd          censisce subito questo PC, senza finestra
 Importa-Scansione.cmd    importa un file di Advanced IP Scanner
 Avvia-Prova.cmd          prova completa per la macchina di test
+Simula-Autodesk.ps1      solo in VM/Sandbox: dati Autodesk finti per provare il foglio Autodesk
 Interfaccia.ps1          la finestra
 Toolkit.ps1              menu testuale (riserva se la finestra non si apre)
 config.psd1              impostazioni (facoltative)
