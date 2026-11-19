@@ -69,6 +69,27 @@ Describe 'Prodotti Autodesk: versione, licenza, account, ultimo avvio' {
         @(InModuleScope HelpDeskToolkit { ConvertFrom-HDLicenzeAutodesk 'niente di leggibile' }) | Should -BeNullOrEmpty
     }
 
+    It 'legge la risposta anche con testo prima e dopo, in UTF-16, dentro un oggetto o con altri nomi dei campi' {
+        InModuleScope HelpDeskToolkit {
+            $prima = "[INFO] Autodesk Licensing Installer Helper 14.1`n[INFO] elenco dei prodotti:`n" + '[{"def_prod_key":"001S1","def_prod_ver":"2027.0.0.F","sel_mode":"USER"}]' + "`nOperazione completata."
+            $l = @(ConvertFrom-HDLicenzeAutodesk $prima)
+            $l.Count | Should -Be 1
+            $l[0].Anno | Should -Be '2027'
+            $sedici = ('[{"def_prod_key":"057S1","def_prod_ver":"2027.0.0.F","sel_mode":"STANDALONE"}]'.ToCharArray() | ForEach-Object { [string]$_ + [char]0 }) -join ''
+            @(ConvertFrom-HDLicenzeAutodesk $sedici)[0].Modalita | Should -Be 'STANDALONE'
+            $oggetto = '{"version":"14.1","products":[{"prod_key":"829S1","prod_ver":"2027.0.0.F","license_mode":"NETWORK","servers":[{"name":"licsrv01"}]}]}'
+            $o = @(ConvertFrom-HDLicenzeAutodesk $oggetto)
+            $o[0].Chiave | Should -Be '829S1'
+            $o[0].Modalita | Should -Be 'NETWORK'
+            $o[0].Server | Should -Be 'licsrv01'
+            Format-HDLicenzaAutodesk -Licenza ([pscustomobject]@{ Chiave = '001S1'; Anno = '2027'; ChiaveScelta = ''; Modalita = 'EDU'; Server = '' }) -Anno '2027' | Should -Be 'Licenza di tipo EDU'
+            # risposta non capita: nella nota (per il log della prova) c'è il suo inizio
+            Get-HDNotaAutodesk ([pscustomobject]@{ Licenze = 'Errore: servizio di licenza non avviato'; Note = @() }) | Should -Be 'risposta di AdskLicensingInstHelper non capita, inizia con: Errore: servizio di licenza non avviato'
+            Get-HDNotaAutodesk ([pscustomobject]@{ Licenze = ''; Note = @('AdskLicensingInstHelper: codice di uscita 5') }) | Should -Be 'AdskLicensingInstHelper: codice di uscita 5; AdskLicensingInstHelper non ha scritto niente'
+            Get-HDNotaAutodesk ([pscustomobject]@{ Licenze = '[{"def_prod_key":"001S1","def_prod_ver":"2027.0.0.F","sel_mode":"USER"}]'; Note = @() }) | Should -Be ''
+        }
+    }
+
     It 'una riga per prodotto con licenza in parole, account, ultimo avvio, seriale' {
         $righe = InModuleScope HelpDeskToolkit -Parameters @{ P = (New-ProgrammiAutodesk); A = (New-AutodeskGrezzo) } { param($P, $A) ConvertTo-HDAutodeskPC -Programmi $P -Autodesk $A }
         @($righe).Count | Should -Be 3

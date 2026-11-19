@@ -42,26 +42,70 @@ $script:HDSerialiGenericiAutodesk = '^(666-69696969|667-98989898|400-45454545)$'
 function ConvertFrom-HDLicenzeAutodesk {
     # Uscita di "AdskLicensingInstHelper list" (JSON) -> prodotti registrati con la licenza scelta:
     # Chiave e Anno del prodotto, ChiaveScelta (la licenza usata: può essere quella di una Collection),
-    # Modalita (USER, STANDALONE, NETWORK o vuota) e Server di licenza
+    # Modalita (USER, STANDALONE, NETWORK o vuota) e Server di licenza. Formato non documentato: il JSON
+    # può avere testo prima e dopo, i prodotti possono stare dentro un oggetto, i nomi dei campi cambiare.
     param([string]$Testo)
-    $t = [string]$Testo
-    $inizio = $t.IndexOf('[')
-    if ($inizio -lt 0) { return }
+    $t = ([string]$Testo).Replace([string][char]0, '').Trim([char]0xFEFF)
     $voci = $null
-    try { $voci = $t.Substring($inizio) | ConvertFrom-Json -ErrorAction Stop } catch { return }
-    foreach ($v in @($voci | Where-Object { $_ })) {
-        $versione = [string]$v.def_prod_ver
+    $inizi = @(@(0) + @([regex]::Matches($t, '(?m)^\s*[\[{]') | ForEach-Object { $_.Index }) | Select-Object -Unique)
+    foreach ($i in $inizi) {
+        $pezzo = $t.Substring($i).Trim()
+        $fine = [math]::Max($pezzo.LastIndexOf(']'), $pezzo.LastIndexOf('}'))
+        if ($fine -lt 0) { continue }
+        try { $voci = $pezzo.Substring(0, $fine + 1) | ConvertFrom-Json -ErrorAction Stop; break }
+        catch { $voci = $null }
+    }
+    if ($null -eq $voci) { return }
+    # i prodotti sono gli oggetti con una chiave di prodotto, ovunque siano nel JSON
+    $prodotti = New-Object System.Collections.Generic.List[object]
+    $cerca = {
+        param($x, [int]$Livello)
+        if ($null -eq $x -or $Livello -gt 6) { return }
+        if ($x -is [System.Array]) { foreach ($e in $x) { & $cerca $e ($Livello + 1) }; return }
+        if ($x -is [System.Management.Automation.PSCustomObject]) {
+            $nomi = @($x.PSObject.Properties | ForEach-Object { $_.Name })
+            if (@($nomi | Where-Object { $_ -match '^(def_|sel_)?prod(uct)?_?key$' }).Count -gt 0) { $prodotti.Add($x); return }
+            foreach ($p in $x.PSObject.Properties) { & $cerca $p.Value ($Livello + 1) }
+        }
+    }
+    & $cerca $voci 0
+    $campo = {
+        param($o, [string[]]$Nomi)
+        foreach ($n in $Nomi) { if ($o.PSObject.Properties[$n] -and "$($o.$n)" -ne '') { return $o.$n } }
+        $null
+    }
+    foreach ($v in $prodotti) {
+        $chiave = [string](& $campo $v @('def_prod_key', 'prod_key', 'product_key', 'productKey', 'sel_prod_key'))
+        $versione = [string](& $campo $v @('def_prod_ver', 'prod_ver', 'product_version', 'productVersion', 'sel_prod_ver'))
         $anno = ''
         if ($versione -match '^(\d{4})') { $anno = $Matches[1] }
-        $server = @(@($v.sel_srv_names) + @($v.lic_servers) | Where-Object { $_ } | ForEach-Object { if ($_ -is [string]) { $_ } elseif ($_.name) { [string]$_.name } } | Select-Object -Unique)
+        $serverGrezzi = @(& $campo $v @('sel_srv_names', 'lic_servers', 'server_names', 'servers'))
+        $server = @($serverGrezzi | Where-Object { $_ } | ForEach-Object { if ($_ -is [string]) { $_ } elseif ($_.name) { [string]$_.name } } | Select-Object -Unique)
         [pscustomobject]@{
-            Chiave       = [string]$v.def_prod_key
+            Chiave       = $chiave
             Anno         = $anno
-            ChiaveScelta = [string]$v.sel_prod_key
-            Modalita     = ([string]$v.sel_mode).ToUpperInvariant()
+            ChiaveScelta = [string](& $campo $v @('sel_prod_key', 'selected_prod_key'))
+            Modalita     = ([string](& $campo $v @('sel_mode', 'lic_mode', 'license_mode', 'licenseMode', 'mode'))).ToUpperInvariant()
             Server       = ($server -join ', ')
         }
     }
+}
+
+function Get-HDNotaAutodesk {
+    # Note sulla lettura dei dati Autodesk (per il log della prova): quelle della raccolta e, se la risposta
+    # di AdskLicensingInstHelper non si è capita, il suo inizio (per correggere la lettura)
+    param($Autodesk)
+    if ($null -eq $Autodesk) { return '' }
+    $note = @($Autodesk.Note | Where-Object { $_ })
+    $testo = [string]$Autodesk.Licenze
+    if ($testo.Trim() -and @(ConvertFrom-HDLicenzeAutodesk $testo).Count -eq 0) {
+        $breve = ($testo -replace '\s+', ' ').Trim()
+        $note += 'risposta di AdskLicensingInstHelper non capita, inizia con: ' + $breve.Substring(0, [math]::Min(300, $breve.Length))
+    }
+    elseif (-not $testo.Trim() -and @($note | Where-Object { $_ -like '*non trovato*' }).Count -eq 0) {
+        $note += 'AdskLicensingInstHelper non ha scritto niente'
+    }
+    $note -join '; '
 }
 
 function ConvertFrom-HDAccountAutodesk {
@@ -112,7 +156,8 @@ function Format-HDLicenzaAutodesk {
             'USER' { 'Utente con nome (abbonamento, account Autodesk)'; break }
             'STANDALONE' { 'Singola con seriale'; break }
             'NETWORK' { 'Di rete'; break }
-            default { 'Nessuna licenza scelta' }
+            '' { 'Nessuna licenza scelta'; break }
+            default { 'Licenza di tipo ' + $Licenza.Modalita }
         }
         if ($Licenza.Modalita -eq 'NETWORK') {
             $server = $Licenza.Server

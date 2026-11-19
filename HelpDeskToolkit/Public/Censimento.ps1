@@ -102,9 +102,22 @@ $script:HDRaccoltaCensimento = {
                     $psi.RedirectStandardError = $true
                     $psi.CreateNoWindow = $true
                     $processo = [System.Diagnostics.Process]::Start($psi)
-                    $uscita = $processo.StandardOutput.ReadToEndAsync()
-                    [void]$processo.StandardError.ReadToEndAsync()
-                    if ($processo.WaitForExit(20000)) { $a.Licenze = $uscita.Result }
+                    # l'uscita si legge in byte: può essere UTF-16 (un byte 0 ogni due) oppure UTF-8/ANSI
+                    $byteUscita = New-Object System.IO.MemoryStream
+                    $copia = $processo.StandardOutput.BaseStream.CopyToAsync($byteUscita)
+                    $errori = $processo.StandardError.ReadToEndAsync()
+                    if ($processo.WaitForExit(20000)) {
+                        [void]$copia.Wait(5000)
+                        $byte = $byteUscita.ToArray()
+                        $zeri = 0
+                        for ($i = 1; $i -lt [math]::Min($byte.Length, 400); $i += 2) { if ($byte[$i] -eq 0) { $zeri++ } }
+                        if ($zeri -gt 10) { $testo = [System.Text.Encoding]::Unicode.GetString($byte) } else { $testo = [System.Text.Encoding]::UTF8.GetString($byte) }
+                        $a.Licenze = $testo.Replace([string][char]0, '').Trim([char]0xFEFF)
+                        if ($processo.ExitCode -ne 0) { $a.Note += 'AdskLicensingInstHelper: codice di uscita ' + $processo.ExitCode }
+                        $testoErrori = ''
+                        if ($errori.Wait(2000)) { $testoErrori = (([string]$errori.Result).Replace([string][char]0, '') -replace '\s+', ' ').Trim() }
+                        if ($testoErrori) { $a.Note += 'AdskLicensingInstHelper (errori): ' + $testoErrori.Substring(0, [math]::Min(300, $testoErrori.Length)) }
+                    }
                     else {
                         $a.Note += 'AdskLicensingInstHelper non ha risposto in 20 secondi'
                         try { $processo.Kill() } catch { $a.Note += 'processo non chiuso' }
